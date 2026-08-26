@@ -30,7 +30,9 @@ jobs:
         env:
           X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          X_COOLDOWN_MINUTES: ${{ secrets.X_COOLDOWN_MINUTES }}
+          # X_COOLDOWN_MINUTES は任意設定。Secretsが未設定だと空文字列が渡り
+          # スクリプト側のデフォルト値処理が壊れるため、変更したい場合のみ値を設定して追加してください。
+          # X_COOLDOWN_MINUTES: ${{ secrets.X_COOLDOWN_MINUTES }}
         run: python x_signal_notifier.py
 
       - name: 状態ファイル&DBをコミット
