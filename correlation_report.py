@@ -10,6 +10,7 @@ correlation_report.py
 """
 
 import os
+import time
 from datetime import datetime
 
 import requests
@@ -49,7 +50,9 @@ def fetch_crypto_series(coin_id: str) -> pd.Series:
     prices = resp.json().get("prices", [])
     df = pd.DataFrame(prices, columns=["ts", "price"])
     df["date"] = pd.to_datetime(df["ts"], unit="ms").dt.date
-    return df.set_index("date")["price"]
+    series = df.set_index("date")["price"]
+    # CoinGeckoは境界日に複数点を返すことがあるため、同一日は最後の値を採用して重複を除去
+    return series[~series.index.duplicated(keep="last")]
 
 
 def fetch_traditional_series(ticker: str) -> pd.Series:
@@ -57,7 +60,8 @@ def fetch_traditional_series(ticker: str) -> pd.Series:
     if hist.empty:
         return pd.Series(dtype=float)
     hist.index = hist.index.date
-    return hist["Close"]
+    series = hist["Close"]
+    return series[~series.index.duplicated(keep="last")]
 
 
 def build_price_matrix() -> pd.DataFrame:
@@ -68,6 +72,7 @@ def build_price_matrix() -> pd.DataFrame:
             series_dict[asset["label"]] = fetch_crypto_series(asset["id"])
         except Exception as e:
             print(f"[エラー] {asset['label']} 取得失敗: {e}")
+        time.sleep(3)  # CoinGecko無料APIのレート制限(429)回避
 
     for asset in TRADITIONAL_ASSETS:
         try:
