@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 環境変数(ローカルテスト用。実運用はGitHub Secretsを使用)
+.env
+
+# エディタ / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 以下は意図的に除外しない(READMEの設計通りGit管理する永続化対象):
+#   trading_system.db, x_signal_state.json, economic_calendar_state.json, nfp_patterns.json

@@ -1,0 +1,26 @@
+# .github/workflows/correlation_report.yml に配置してください。
+
+name: Correlation Report
+
+on:
+  schedule:
+    - cron: "0 22 * * 0"  # 毎週日曜 UTC22:00(日本時間月曜7:00頃)
+  workflow_dispatch: {}
+
+jobs:
+  run-correlation-report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 依存関係インストール
+        run: pip install requests pandas yfinance
+
+      - name: 相関レポート生成&送信
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python correlation_report.py

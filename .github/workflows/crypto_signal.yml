@@ -1,0 +1,42 @@
+# .github/workflows/crypto_signal.yml に配置してください。
+# 30分おきに実行: CoinGeckoの価格からSMAクロス+RSIでLONG/SHORTを判定しDiscordに通知
+
+name: Crypto Signal Notifier
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"  # 30分おき
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  check-and-notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 依存関係インストール
+        run: pip install requests pandas
+
+      - name: シグナル判定&通知
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          ACCOUNT_BALANCE_USD: ${{ secrets.ACCOUNT_BALANCE_USD }}
+          RISK_PERCENT_PER_TRADE: ${{ secrets.RISK_PERCENT_PER_TRADE }}
+          DEFAULT_STOP_LOSS_PCT: ${{ secrets.DEFAULT_STOP_LOSS_PCT }}
+          CRYPTO_COOLDOWN_MINUTES: ${{ secrets.CRYPTO_COOLDOWN_MINUTES }}
+        run: python crypto_signal_notifier.py
+
+      - name: DBをコミット
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add trading_system.db
+          git diff --staged --quiet || git commit -m "update signal log (crypto)"
+          git push

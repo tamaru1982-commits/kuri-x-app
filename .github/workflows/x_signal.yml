@@ -1,0 +1,42 @@
+# .github/workflows/x_signal.yml に配置してください。
+# 15分おきに実行: 指定Xアカウントの投稿をキーワード監視しDiscordに通知
+#
+# 注意: X APIは従量課金です。cronの頻度はAPI利用料と相談して調整してください。
+
+name: X Signal Notifier
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"  # 15分おき
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  check-and-notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 依存関係インストール
+        run: pip install requests
+
+      - name: 投稿チェック&通知
+        env:
+          X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          X_COOLDOWN_MINUTES: ${{ secrets.X_COOLDOWN_MINUTES }}
+        run: python x_signal_notifier.py
+
+      - name: 状態ファイル&DBをコミット
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add x_signal_state.json trading_system.db
+          git diff --staged --quiet || git commit -m "update x signal state"
+          git push

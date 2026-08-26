@@ -1,0 +1,39 @@
+# .github/workflows/economic_calendar_reminder.yml に配置してください。
+# nfp_reminder.yml の後継版です。NFPに加えCPI・PCE・(設定すれば)FOMCにも対応します。
+
+name: Economic Calendar Reminder
+
+on:
+  schedule:
+    - cron: "0 13 * * *"  # UTC 13:00 = 日本時間22:00頃
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  check-and-remind:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 依存関係インストール
+        run: pip install requests
+
+      - name: 発表日チェック&リマインド送信
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python economic_calendar_reminder.py
+
+      - name: 状態ファイルをコミット
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add economic_calendar_state.json
+          git diff --staged --quiet || git commit -m "update economic calendar reminder state"
+          git push

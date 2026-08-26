@@ -1,0 +1,39 @@
+# .github/workflows/confluence_checker.yml に配置してください。
+# crypto_signal_notifier.pyとx_signal_notifier.pyの両方の後に実行されるよう、
+# 少しずらしたタイミングで30分おきに実行するのがおすすめです。
+
+name: Confluence Checker
+
+on:
+  schedule:
+    - cron: "10,40 * * * *"  # 毎時10分・40分に実行(元の通知より少し後にずらす)
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  check-confluence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 依存関係インストール
+        run: pip install requests
+
+      - name: コンフルエンスチェック
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python confluence_checker.py
+
+      - name: DBをコミット
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add trading_system.db
+          git diff --staged --quiet || git commit -m "update confluence log"
+          git push
