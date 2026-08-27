@@ -298,7 +298,7 @@ def build_html() -> str:
 </head>
 <body>
   <h1>🪙 シグナル状況ダッシュボード</h1>
-  <div class="updated">最終更新: {now_str}</div>
+  <div class="updated">最終更新: {now_str} ・ <a href="about.html" style="color:#4f8cff">このアプリについて</a></div>
 
   {render_asset_filter(asset_options)}
 
