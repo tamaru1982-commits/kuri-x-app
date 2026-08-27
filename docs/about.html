@@ -154,6 +154,35 @@
   </section>
 
   <section>
+    <h2>各情報の取得タイミング</h2>
+    <p>すべてGitHub Actionsの定期実行(cron)で自動的に動いています。時刻は日本時間(JST)の目安です。</p>
+    <table>
+      <thead><tr><th>機能</th><th>実行タイミング</th><th>設定ファイル</th></tr></thead>
+      <tbody>
+        <tr><td>tech / dip(価格取得・判定)</td><td>30分おき</td><td><code>crypto_signal.yml</code></td></tr>
+        <tr><td>x(X投稿監視)</td><td>15分おき</td><td><code>x_signal.yml</code></td></tr>
+        <tr><td>whale(クジラ監視)</td><td>15分おき</td><td><code>whale_signal.yml</code></td></tr>
+        <tr><td>conf(複数ソース一致確認)</td><td>毎時10分・40分</td><td><code>confluence_checker.yml</code></td></tr>
+        <tr><td>的中率検証</td><td>毎時5分(結果検証)、月曜に週次サマリー</td><td><code>accuracy_tracker.yml</code></td></tr>
+        <tr><td>macro(マクロ相関判定)</td><td>毎月8日 23:00頃</td><td><code>macro_signal.yml</code></td></tr>
+        <tr><td>経済指標リマインド</td><td>毎日22:00頃</td><td><code>economic_calendar_reminder.yml</code></td></tr>
+        <tr><td>資産相関レポート</td><td>毎週月曜7:00頃</td><td><code>correlation_report.yml</code></td></tr>
+        <tr><td>ダッシュボード更新</td><td>15分おき</td><td><code>dashboard.yml</code></td></tr>
+      </tbody>
+    </table>
+    <div class="note">
+      GitHub Actionsのschedule実行は「その時刻ちょうど」に必ず動く保証がなく、GitHub側の負荷状況で
+      数十分〜数時間単位で遅れることがあります(無料枠での既知の制約です)。通知が来るのが遅いと感じても、
+      異常とは限りません。
+    </div>
+    <p>
+      変更したい場合は、各<code>.github/workflows/*.yml</code>内の<code>cron:</code>の行を書き換えてpushします。
+      cron書式は「分 時 日 月 曜日」(UTC基準)です。GitHubのリポジトリ画面から該当ファイルを開き、
+      鉛筆アイコンで直接編集してコミットすることもできます。
+    </p>
+  </section>
+
+  <section>
     <h2>リスク管理の表示について</h2>
     <p>
       通知に添えられる「損切り目安」は、価格からの一定率(既定3%)で計算した参考値です。
