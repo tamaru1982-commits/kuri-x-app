@@ -63,6 +63,7 @@ TRANSFER_PATTERN = re.compile(
 # ============ 状態の読み書き(新着投稿の重複取得防止) ============
 
 def load_last_seen_id() -> str | None:
+    return None  # DEBUG: temporarily force full refetch
     if STATE_FILE.exists():
         try:
             data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
