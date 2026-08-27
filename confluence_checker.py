@@ -23,7 +23,7 @@ LOOKBACK_HOURS = int(os.environ.get("CONFLUENCE_LOOKBACK_HOURS", "6"))
 COOLDOWN_MINUTES = int(os.environ.get("CONFLUENCE_COOLDOWN_MINUTES", "180"))
 
 SOURCE_NAME = "confluence"
-TARGET_SOURCES = ["crypto_technical", "x_post", "whale_flow"]
+TARGET_SOURCES = ["crypto_technical", "x_post", "whale_flow", "macro_pattern"]
 
 
 def find_confluences() -> list[dict]:

@@ -1,0 +1,48 @@
+# 月1回(毎月8日、NFP発表後)実行: 雇用統計×金・ドル・AI株(NVDA)のリスクセンチメント
+# パターン別の過去傾向から、現在の環境に該当するパターンがあればLONG/SHORTシグナルを通知する。
+#
+# 注意: 月次×少数パターンでの統計のため、サンプル数は少なく統計的根拠は他のシグナルより弱い。
+# 参考情報として扱うこと(macro_signal_notifier.py内のコメント参照)。
+
+name: Macro Signal Notifier
+
+on:
+  schedule:
+    - cron: "0 14 8 * *"  # 毎月8日 UTC14:00(NFPは毎月最初の金曜=7日目までに発表されるため余裕をもって8日に設定)
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  check-and-notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 依存関係インストール
+        run: pip install requests pandas yfinance
+
+      - name: マクロ環境判定&通知
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          # MACRO_MIN_SAMPLE_COUNT / MACRO_SKEW_THRESHOLD_PCT / MACRO_COOLDOWN_MINUTES は任意設定。
+          # Secretsが未設定だと空文字列が渡りスクリプト側のデフォルト値処理が壊れるため、
+          # 変更したい場合のみ値を設定して追加してください。
+          # MACRO_MIN_SAMPLE_COUNT: ${{ secrets.MACRO_MIN_SAMPLE_COUNT }}
+          # MACRO_SKEW_THRESHOLD_PCT: ${{ secrets.MACRO_SKEW_THRESHOLD_PCT }}
+          # MACRO_COOLDOWN_MINUTES: ${{ secrets.MACRO_COOLDOWN_MINUTES }}
+        run: python macro_signal_notifier.py
+
+      - name: DBをコミット
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add trading_system.db
+          git diff --staged --quiet || git commit -m "update macro signal log"
+          git push
