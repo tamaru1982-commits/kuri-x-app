@@ -53,17 +53,27 @@ DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 X_API_BASE = "https://api.x.com/2"
 SOURCE_NAME = "whale_flow"
 
-# 例: "1,000 #BTC (65,000,000 USD) transferred from #Binance to unknown wallet"
+# 例: "894 $BTC (69,825,706 USD) transferred from unknown wallet to Coinbase Institutional"
+# 資産シンボルは "$BTC" のようにドル記号(cashtag)で表記される
 TRANSFER_PATTERN = re.compile(
-    r"([\d,.]+)\s+#(\w+)\s+\(([\d,.]+)\s*USD\)\s+transferred from\s+(.+?)\s+to\s+(.+)",
+    r"([\d,.]+)\s+[#$](\w+)\s+\(([\d,.]+)\s*USD\)\s+transferred from\s+(.+?)\s+to\s+(.+)",
     re.IGNORECASE,
 )
+
+# 取引所名は "#" タグではなくプレーンテキストで表記され("Coinbase Institutional"等)、
+# 一方でDeFiプロトコル("#Aave"等)や"Unknown Whale 1"のような非取引所ラベルにも
+# "#"やプレーンテキストが使われるため、"#"の有無ではなく既知の主要取引所名との
+# 部分一致で判定する。
+KNOWN_EXCHANGES = [
+    "binance", "coinbase", "kraken", "bitfinex", "okx", "okex", "bybit",
+    "huobi", "htx", "upbit", "bitstamp", "gemini", "crypto.com", "kucoin",
+    "gate.io", "mexc", "bithumb", "bittrex", "poloniex", "bitget", "whitebit",
+]
 
 
 # ============ 状態の読み書き(新着投稿の重複取得防止) ============
 
 def load_last_seen_id() -> str | None:
-    return None  # DEBUG: temporarily force full refetch
     if STATE_FILE.exists():
         try:
             data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
@@ -107,8 +117,9 @@ def get_recent_tweets(user_id: str, since_id: str | None) -> list[dict]:
 # ============ シグナル判定 ============
 
 def is_exchange(entity: str) -> bool:
-    """'#Binance'のようにハッシュタグ付きの既知エンティティなら取引所とみなす。"""
-    return "#" in entity
+    """既知の主要取引所名が含まれていれば取引所とみなす。"""
+    entity_lower = entity.lower()
+    return any(exchange in entity_lower for exchange in KNOWN_EXCHANGES)
 
 
 def judge_signal_from_text(text: str) -> dict | None:
