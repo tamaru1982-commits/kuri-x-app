@@ -27,10 +27,9 @@ jobs:
       - name: シグナル判定&通知
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          # ACCOUNT_BALANCE_USD / RISK_PERCENT_PER_TRADE / DEFAULT_STOP_LOSS_PCT / CRYPTO_COOLDOWN_MINUTES は
-          # 任意設定。Secretsが未設定だと空文字列が渡りスクリプト側のデフォルト値処理が壊れるため、
+          # RISK_PERCENT_PER_TRADE / DEFAULT_STOP_LOSS_PCT / CRYPTO_COOLDOWN_MINUTES は任意設定。
+          # Secretsが未設定だと空文字列が渡りスクリプト側のデフォルト値処理が壊れるため、
           # カスタマイズしたい場合のみ下記のように値を設定して追加してください(空のまま追加しないこと)。
-          # ACCOUNT_BALANCE_USD: ${{ secrets.ACCOUNT_BALANCE_USD }}
           # RISK_PERCENT_PER_TRADE: ${{ secrets.RISK_PERCENT_PER_TRADE }}
           # DEFAULT_STOP_LOSS_PCT: ${{ secrets.DEFAULT_STOP_LOSS_PCT }}
           # CRYPTO_COOLDOWN_MINUTES: ${{ secrets.CRYPTO_COOLDOWN_MINUTES }}

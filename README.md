@@ -162,11 +162,13 @@ FRED（セントルイス連邦準備銀行が運営する経済データベー�
 2. `.github/workflows/` に各 `.yml` ファイルを配置
 3. Secretsは既存のもの(`DISCORD_WEBHOOK_URL`, `X_BEARER_TOKEN`, `FRED_API_KEY`)を共用可能。追加は不要
 4. 環境変数で以下を調整可能(未設定でもデフォルト値で動作します)
-   - `ACCOUNT_BALANCE_USD`: 口座残高(デフォルト1000)
    - `RISK_PERCENT_PER_TRADE`: 1トレードあたりのリスク許容%(デフォルト1.0)
    - `DEFAULT_STOP_LOSS_PCT`: 損切りまでの値幅%(デフォルト3.0)
    - `CRYPTO_COOLDOWN_MINUTES` / `X_COOLDOWN_MINUTES` / `CONFLUENCE_COOLDOWN_MINUTES`: 各クールダウン時間(分)
-   - これらはGitHub Secretsまたはワークフローのenvに追加してください
+   - これらはGitHub Secretsまたはワークフローのenvに追加してください(値を空のまま追加しないこと。未設定の場合は追加しないでください)
+   - `risk_utils.py`はポジション金額・数量の計算は行わず、損切りライン(%)と
+     「1トレードの損失許容は口座資金の◯%まで」という通貨非依存の目安のみを通知します。
+     実際の数量・金額は口座資金(円)とその時のレートに応じて各自で計算してください
 
 ### 各機能の実行タイミング(初期設定)
 

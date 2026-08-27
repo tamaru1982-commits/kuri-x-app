@@ -131,6 +131,12 @@ def build_discord_message(results: list) -> str:
     now_str = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M")
     lines = [f"**🪙 仮想通貨シグナル通知 ({now_str})**", ""]
 
+    active_signal_count = sum(1 for r in results if r["result"]["signal"] in ("LONG", "SHORT"))
+    caution = risk_utils.format_multi_signal_caution(active_signal_count)
+    if caution:
+        lines.append(caution)
+        lines.append("")
+
     for r in results:
         symbol = r["symbol"]
         signal = r["result"]["signal"]
