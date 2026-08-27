@@ -223,6 +223,13 @@ def get_journal_summary() -> dict:
     }
 
 
+def get_open_positions() -> list[sqlite3.Row]:
+    conn = get_conn()
+    rows = conn.execute("SELECT * FROM journal WHERE status = 'open' ORDER BY timestamp DESC").fetchall()
+    conn.close()
+    return rows
+
+
 if __name__ == "__main__":
     init_db()
     print(f"[OK] {DB_FILE} を初期化しました。")

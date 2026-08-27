@@ -233,6 +233,28 @@ python journal_report.py
 - 大口移動は取引所の内部振替(コールドウォレット間移動など)の場合もあり、
   必ずしも売買意図を意味しません。投資助言ではありません
 
+---
+
+## フェーズ4: ステータスダッシュボード
+
+`dashboard_generator.py` + `dashboard.yml` を使うと、直近のシグナル・的中率・
+保有中ポジション・トレード成績を1枚のHTMLにまとめてGitHub Pagesで公開できます。
+Discordの通知が来た瞬間だけでなく、いつでも「今どうなっているか」を確認できます。
+
+### セットアップ手順
+
+1. `dashboard_generator.py`をリポジトリ直下にアップロード
+2. `dashboard.yml`を`.github/workflows/dashboard.yml`に配置(15分おきに`docs/index.html`を自動更新)
+3. リポジトリの`Settings > Pages`で、Source: `Deploy from a branch`、Branch: `main` / `/docs` を選択
+4. 発行されたURLをスマホのホーム画面に追加すれば、簡易アプリのように使えます
+
+### 注意事項
+
+- **GitHub FreeプランのPrivateリポジトリでは、Pagesで公開したURLは「知っていれば誰でも閲覧できる」状態になります**
+  (検索エンジンには載りませんが、真の意味での非公開ではありません)。トレード記録を含むため、
+  URLを第三者に共有しないよう注意してください。より強い非公開性が必要な場合はGitHub Pro/Team以上の
+  「Private Pages」機能が必要です
+
 ### 全体としての位置づけ・限界
 
 - これは「判断材料を増やし、記録を残し、リスクを可視化する」ためのツール群であり、
