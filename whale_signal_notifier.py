@@ -206,7 +206,7 @@ def main():
             if db_utils.was_recently_notified(SOURCE_NAME, asset, signal, COOLDOWN_MINUTES):
                 print(f"[スキップ] {asset} {signal} はクールダウン中: {text[:30]}...")
             else:
-                db_utils.log_signal(SOURCE_NAME, asset, signal, None, message=text[:200])
+                db_utils.log_signal(SOURCE_NAME, asset, signal, None, message=reason)
                 send_discord_notification(text, signal, asset, reason, tweet_id)
         else:
             print(f"[スキップ] 対象外/抽出不可: {text[:200]}")

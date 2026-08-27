@@ -12,6 +12,7 @@ dashboard.yml(定期実行)から呼び出され、生成後にdocs/index.html�
 「知っていれば誰でも閲覧できる」(検索エンジンには載らないが真の非公開ではない)。
 """
 
+import html
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -20,11 +21,32 @@ import db_utils
 OUTPUT_FILE = Path("docs/index.html")
 JST = timedelta(hours=9)
 
+# モバイルでの横スクロールを避けるため短縮表記にする
+SOURCE_ABBREV = {
+    "crypto_technical": "tech",
+    "x_post": "x",
+    "whale_flow": "whale",
+    "macro_pattern": "macro",
+    "confluence": "conf",
+}
 
-def to_jst_str(iso_timestamp: str) -> str:
+# 資産ごとに文字色を割り当てて識別しやすくする(ダーク背景での視認性を優先した配色)
+ASSET_COLORS = {
+    "BTC": "#f7931a",
+    "ETH": "#9fa8ff",
+    "SOL": "#4df3c4",
+    "XRP": "#5ac8fa",
+    "USDT": "#4dd8ab",
+    "USDC": "#5b9bff",
+    "市場全体": "#c9c9c9",
+}
+DEFAULT_ASSET_COLOR = "#e6e6e6"
+
+
+def to_short_time(iso_timestamp: str) -> str:
     try:
         dt = datetime.fromisoformat(iso_timestamp) + JST
-        return dt.strftime("%Y-%m-%d %H:%M JST")
+        return dt.strftime("%m-%d %H:%M")
     except Exception:
         return iso_timestamp
 
@@ -33,23 +55,65 @@ def signal_emoji(direction: str) -> str:
     return "🟢" if direction == "LONG" else "🔴" if direction == "SHORT" else "⚪"
 
 
+def asset_span(asset: str) -> str:
+    color = ASSET_COLORS.get(asset, DEFAULT_ASSET_COLOR)
+    return f"<span class='asset' style='color:{color}'>{html.escape(asset)}</span>"
+
+
+def source_label(source: str) -> str:
+    return html.escape(SOURCE_ABBREV.get(source, source[:5]))
+
+
+def compact_basis(text: str, max_len: int = 22) -> str:
+    """改行を除去し、モバイル幅に収まるよう短く切り詰める。"""
+    if not text:
+        return ""
+    flat = " ".join(text.split())
+    if len(flat) > max_len:
+        flat = flat[:max_len].rstrip() + "…"
+    return flat
+
+
+def collect_assets(*row_groups) -> list[str]:
+    assets = set()
+    for rows in row_groups:
+        for r in rows:
+            assets.add(r["asset"])
+    return sorted(assets)
+
+
+def render_asset_filter(assets: list[str]) -> str:
+    if not assets:
+        return ""
+    boxes = "".join(
+        f"<label class='chip'><input type='checkbox' class='asset-toggle' value='{html.escape(a)}' checked>"
+        f"{asset_span(a)}</label>"
+        for a in assets
+    )
+    return f"<div class='filter-bar'>{boxes}</div>"
+
+
 def render_recent_signals(rows) -> str:
     if not rows:
         return "<p class='muted'>直近のシグナルはありません。</p>"
 
     items = []
     for r in sorted(rows, key=lambda x: x["timestamp"], reverse=True)[:30]:
-        price = f"${r['price_at_signal']:,.2f}" if r["price_at_signal"] is not None else "-"
+        full_message = r["message"] or ""
+        basis = html.escape(compact_basis(full_message))
+        title_attr = f" title='{html.escape(' '.join(full_message.split()))}'" if basis else ""
         items.append(
-            f"<tr><td>{to_jst_str(r['timestamp'])}</td>"
-            f"<td>{r['source']}</td>"
-            f"<td>{r['asset']}</td>"
-            f"<td>{signal_emoji(r['direction'])} {r['direction']}</td>"
-            f"<td>{price}</td></tr>"
+            f"<tr data-asset='{html.escape(r['asset'])}'>"
+            f"<td>{to_short_time(r['timestamp'])}</td>"
+            f"<td>{source_label(r['source'])}</td>"
+            f"<td>{asset_span(r['asset'])}</td>"
+            f"<td{title_attr}>{signal_emoji(r['direction'])} {r['direction']}"
+            f"{f'<span class=\"basis\"> · {basis}</span>' if basis else ''}</td>"
+            f"</tr>"
         )
     return (
-        "<table><thead><tr><th>時刻</th><th>ソース</th><th>資産</th>"
-        "<th>方向</th><th>価格</th></tr></thead><tbody>" + "".join(items) + "</tbody></table>"
+        "<table class='filterable'><thead><tr><th>時刻</th><th>ソース</th><th>資産</th>"
+        "<th>方向・根拠</th></tr></thead><tbody>" + "".join(items) + "</tbody></table>"
     )
 
 
@@ -60,11 +124,12 @@ def render_hit_rate(summary) -> str:
     items = []
     for row in summary:
         items.append(
-            f"<tr><td>{row['source']}</td><td>{row['asset']}</td>"
+            f"<tr data-asset='{html.escape(row['asset'])}'>"
+            f"<td>{source_label(row['source'])}</td><td>{asset_span(row['asset'])}</td>"
             f"<td>{row['hit_rate_pct']}%</td><td>{row['correct']}/{row['total']}件</td></tr>"
         )
     return (
-        "<table><thead><tr><th>ソース</th><th>資産</th><th>的中率</th><th>件数</th></tr></thead>"
+        "<table class='filterable'><thead><tr><th>ソース</th><th>資産</th><th>的中率</th><th>件数</th></tr></thead>"
         "<tbody>" + "".join(items) + "</tbody></table>"
     )
 
@@ -76,14 +141,16 @@ def render_open_positions(rows) -> str:
     items = []
     for r in rows:
         stop = f"${r['stop_loss']:,.2f}" if r["stop_loss"] is not None else "-"
+        note = html.escape(r["note"] or "-")
         items.append(
-            f"<tr><td>{to_jst_str(r['timestamp'])}</td><td>{r['asset']}</td>"
+            f"<tr data-asset='{html.escape(r['asset'])}'>"
+            f"<td>{to_short_time(r['timestamp'])}</td><td>{asset_span(r['asset'])}</td>"
             f"<td>{signal_emoji(r['direction'])} {r['direction']}</td>"
             f"<td>${r['entry_price']:,.2f}</td><td>{r['size']}</td>"
-            f"<td>{stop}</td><td>{r['note'] or '-'}</td></tr>"
+            f"<td>{stop}</td><td>{note}</td></tr>"
         )
     return (
-        "<table><thead><tr><th>建玉日時</th><th>資産</th><th>方向</th>"
+        "<table class='filterable'><thead><tr><th>建玉日時</th><th>資産</th><th>方向</th>"
         "<th>建値</th><th>数量</th><th>損切り</th><th>メモ</th></tr></thead>"
         "<tbody>" + "".join(items) + "</tbody></table>"
     )
@@ -104,13 +171,52 @@ def render_journal_summary(summary) -> str:
     )
 
 
+FILTER_SCRIPT = """
+<script>
+(function () {
+  var STORAGE_KEY = "dashboard_hidden_assets";
+  var hidden = [];
+  try {
+    hidden = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+  } catch (e) { hidden = []; }
+
+  function applyFilter() {
+    var checked = {};
+    document.querySelectorAll(".asset-toggle").forEach(function (box) {
+      checked[box.value] = box.checked;
+    });
+    document.querySelectorAll("table.filterable tbody tr").forEach(function (row) {
+      var asset = row.getAttribute("data-asset");
+      row.style.display = (checked[asset] === false) ? "none" : "";
+    });
+  }
+
+  document.querySelectorAll(".asset-toggle").forEach(function (box) {
+    if (hidden.indexOf(box.value) !== -1) box.checked = false;
+    box.addEventListener("change", function () {
+      var nowHidden = [];
+      document.querySelectorAll(".asset-toggle").forEach(function (b) {
+        if (!b.checked) nowHidden.push(b.value);
+      });
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(nowHidden)); } catch (e) {}
+      applyFilter();
+    });
+  });
+
+  applyFilter();
+})();
+</script>
+"""
+
+
 def build_html() -> str:
     recent_signals = db_utils.get_recent_signals(hours=72)
     hit_rate = db_utils.get_hit_rate_summary(hours=24 * 30)
     open_positions = db_utils.get_open_positions()
     journal_summary = db_utils.get_journal_summary()
 
-    now_jst = (datetime.utcnow() + JST).strftime("%Y-%m-%d %H:%M JST")
+    now_str = (datetime.utcnow() + JST).strftime("%m-%d %H:%M")
+    asset_options = collect_assets(recent_signals, open_positions, hit_rate)
 
     return f"""<!DOCTYPE html>
 <html lang="ja">
@@ -120,34 +226,45 @@ def build_html() -> str:
 <title>シグナル状況ダッシュボード</title>
 <style>
   :root {{ color-scheme: light dark; }}
+  * {{ box-sizing: border-box; }}
   body {{
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     max-width: 720px; margin: 0 auto; padding: 16px;
     background: #0f1115; color: #e6e6e6;
   }}
-  h1 {{ font-size: 1.3rem; margin-bottom: 4px; }}
-  .updated {{ color: #8a8f98; font-size: 0.85rem; margin-bottom: 24px; }}
-  section {{ margin-bottom: 28px; }}
-  h2 {{ font-size: 1rem; border-left: 4px solid #4f8cff; padding-left: 8px; margin-bottom: 10px; }}
-  table {{ width: 100%; border-collapse: collapse; font-size: 0.85rem; }}
-  th, td {{ text-align: left; padding: 6px 8px; border-bottom: 1px solid #2a2d34; white-space: nowrap; }}
-  th {{ color: #8a8f98; font-weight: 500; }}
+  h1 {{ font-size: 1.2rem; margin-bottom: 4px; }}
+  .updated {{ color: #8a8f98; font-size: 0.8rem; margin-bottom: 20px; }}
+  section {{ margin-bottom: 26px; }}
+  h2 {{ font-size: 0.95rem; border-left: 4px solid #4f8cff; padding-left: 8px; margin-bottom: 10px; }}
+  table {{ width: 100%; border-collapse: collapse; font-size: 0.78rem; table-layout: fixed; }}
+  th, td {{ text-align: left; padding: 5px 4px; border-bottom: 1px solid #2a2d34; overflow: hidden; text-overflow: ellipsis; }}
+  th {{ color: #8a8f98; font-weight: 500; font-size: 0.72rem; }}
+  .asset {{ font-weight: 700; }}
+  .basis {{ color: #8a8f98; }}
   .muted {{ color: #8a8f98; font-size: 0.9rem; }}
-  .stats {{ display: flex; flex-wrap: wrap; gap: 12px; }}
-  .stat {{ background: #1a1d24; border-radius: 8px; padding: 10px 14px; min-width: 110px; }}
-  .stat .label {{ display: block; color: #8a8f98; font-size: 0.75rem; }}
-  .stat .value {{ display: block; font-size: 1.1rem; font-weight: 600; }}
-  .table-wrap {{ overflow-x: auto; }}
-  .disclaimer {{ color: #8a8f98; font-size: 0.75rem; margin-top: 32px; border-top: 1px solid #2a2d34; padding-top: 12px; }}
+  .stats {{ display: flex; flex-wrap: wrap; gap: 10px; }}
+  .stat {{ background: #1a1d24; border-radius: 8px; padding: 8px 12px; min-width: 100px; }}
+  .stat .label {{ display: block; color: #8a8f98; font-size: 0.7rem; }}
+  .stat .value {{ display: block; font-size: 1.05rem; font-weight: 600; }}
+  .disclaimer {{ color: #8a8f98; font-size: 0.72rem; margin-top: 28px; border-top: 1px solid #2a2d34; padding-top: 12px; }}
+  .filter-bar {{ display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }}
+  .chip {{
+    display: inline-flex; align-items: center; gap: 4px;
+    background: #1a1d24; border-radius: 999px; padding: 4px 10px;
+    font-size: 0.78rem; cursor: pointer; user-select: none;
+  }}
+  .chip input {{ accent-color: #4f8cff; }}
 </style>
 </head>
 <body>
   <h1>🪙 シグナル状況ダッシュボード</h1>
-  <div class="updated">最終更新: {now_jst}</div>
+  <div class="updated">最終更新: {now_str}</div>
+
+  {render_asset_filter(asset_options)}
 
   <section>
     <h2>保有中ポジション</h2>
-    <div class="table-wrap">{render_open_positions(open_positions)}</div>
+    {render_open_positions(open_positions)}
   </section>
 
   <section>
@@ -157,18 +274,20 @@ def build_html() -> str:
 
   <section>
     <h2>的中率(直近30日)</h2>
-    <div class="table-wrap">{render_hit_rate(hit_rate)}</div>
+    {render_hit_rate(hit_rate)}
   </section>
 
   <section>
     <h2>直近のシグナル(72時間以内・最大30件)</h2>
-    <div class="table-wrap">{render_recent_signals(recent_signals)}</div>
+    {render_recent_signals(recent_signals)}
   </section>
 
   <div class="disclaimer">
     ※このダッシュボードは記録・分析支援を目的としたものであり、投資助言ではありません。
-    自動売買は行っていません。
+    自動売買は行っていません。上のチップで表示する資産を絞り込めます(この端末にのみ記憶されます)。
   </div>
+
+  {FILTER_SCRIPT}
 </body>
 </html>
 """

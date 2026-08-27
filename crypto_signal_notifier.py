@@ -208,7 +208,7 @@ def main():
                     print(f"{symbol}: {result['signal']} だがクールダウン中のためスキップ")
                     result["signal"] = "様子見(クールダウン中)"
                 else:
-                    db_utils.log_signal(SOURCE_NAME, symbol, result["signal"], result["price"])
+                    db_utils.log_signal(SOURCE_NAME, symbol, result["signal"], result["price"], message=f"RSI{result['rsi']:.0f}")
                     any_to_notify = True
 
             results.append({"symbol": symbol, "result": result})

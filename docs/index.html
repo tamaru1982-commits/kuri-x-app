@@ -6,34 +6,45 @@
 <title>シグナル状況ダッシュボード</title>
 <style>
   :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     max-width: 720px; margin: 0 auto; padding: 16px;
     background: #0f1115; color: #e6e6e6;
   }
-  h1 { font-size: 1.3rem; margin-bottom: 4px; }
-  .updated { color: #8a8f98; font-size: 0.85rem; margin-bottom: 24px; }
-  section { margin-bottom: 28px; }
-  h2 { font-size: 1rem; border-left: 4px solid #4f8cff; padding-left: 8px; margin-bottom: 10px; }
-  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #2a2d34; white-space: nowrap; }
-  th { color: #8a8f98; font-weight: 500; }
+  h1 { font-size: 1.2rem; margin-bottom: 4px; }
+  .updated { color: #8a8f98; font-size: 0.8rem; margin-bottom: 20px; }
+  section { margin-bottom: 26px; }
+  h2 { font-size: 0.95rem; border-left: 4px solid #4f8cff; padding-left: 8px; margin-bottom: 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.78rem; table-layout: fixed; }
+  th, td { text-align: left; padding: 5px 4px; border-bottom: 1px solid #2a2d34; overflow: hidden; text-overflow: ellipsis; }
+  th { color: #8a8f98; font-weight: 500; font-size: 0.72rem; }
+  .asset { font-weight: 700; }
+  .basis { color: #8a8f98; }
   .muted { color: #8a8f98; font-size: 0.9rem; }
-  .stats { display: flex; flex-wrap: wrap; gap: 12px; }
-  .stat { background: #1a1d24; border-radius: 8px; padding: 10px 14px; min-width: 110px; }
-  .stat .label { display: block; color: #8a8f98; font-size: 0.75rem; }
-  .stat .value { display: block; font-size: 1.1rem; font-weight: 600; }
-  .table-wrap { overflow-x: auto; }
-  .disclaimer { color: #8a8f98; font-size: 0.75rem; margin-top: 32px; border-top: 1px solid #2a2d34; padding-top: 12px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 10px; }
+  .stat { background: #1a1d24; border-radius: 8px; padding: 8px 12px; min-width: 100px; }
+  .stat .label { display: block; color: #8a8f98; font-size: 0.7rem; }
+  .stat .value { display: block; font-size: 1.05rem; font-weight: 600; }
+  .disclaimer { color: #8a8f98; font-size: 0.72rem; margin-top: 28px; border-top: 1px solid #2a2d34; padding-top: 12px; }
+  .filter-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: #1a1d24; border-radius: 999px; padding: 4px 10px;
+    font-size: 0.78rem; cursor: pointer; user-select: none;
+  }
+  .chip input { accent-color: #4f8cff; }
 </style>
 </head>
 <body>
   <h1>🪙 シグナル状況ダッシュボード</h1>
-  <div class="updated">最終更新: 2026-08-28 00:13 JST</div>
+  <div class="updated">最終更新: 08-28 01:04</div>
+
+  <div class='filter-bar'><label class='chip'><input type='checkbox' class='asset-toggle' value='BTC' checked><span class='asset' style='color:#f7931a'>BTC</span></label><label class='chip'><input type='checkbox' class='asset-toggle' value='ETH' checked><span class='asset' style='color:#9fa8ff'>ETH</span></label><label class='chip'><input type='checkbox' class='asset-toggle' value='SOL' checked><span class='asset' style='color:#4df3c4'>SOL</span></label><label class='chip'><input type='checkbox' class='asset-toggle' value='XRP' checked><span class='asset' style='color:#5ac8fa'>XRP</span></label><label class='chip'><input type='checkbox' class='asset-toggle' value='市場全体' checked><span class='asset' style='color:#c9c9c9'>市場全体</span></label></div>
 
   <section>
     <h2>保有中ポジション</h2>
-    <div class="table-wrap"><p class='muted'>保有中のポジションはありません。</p></div>
+    <p class='muted'>保有中のポジションはありません。</p>
   </section>
 
   <section>
@@ -43,17 +54,54 @@
 
   <section>
     <h2>的中率(直近30日)</h2>
-    <div class="table-wrap"><p class='muted'>まだ的中率を計算できるデータがありません。</p></div>
+    <p class='muted'>まだ的中率を計算できるデータがありません。</p>
   </section>
 
   <section>
     <h2>直近のシグナル(72時間以内・最大30件)</h2>
-    <div class="table-wrap"><table><thead><tr><th>時刻</th><th>ソース</th><th>資産</th><th>方向</th><th>価格</th></tr></thead><tbody><tr><td>2026-08-27 23:59 JST</td><td>x_post</td><td>BTC</td><td>🟢 LONG</td><td>-</td></tr><tr><td>2026-08-27 23:59 JST</td><td>x_post</td><td>市場全体</td><td>🟢 LONG</td><td>-</td></tr><tr><td>2026-08-27 23:32 JST</td><td>crypto_technical</td><td>ETH</td><td>🟢 LONG</td><td>$2,507.10</td></tr><tr><td>2026-08-27 23:31 JST</td><td>crypto_technical</td><td>BTC</td><td>🟢 LONG</td><td>$79,876.65</td></tr><tr><td>2026-08-27 12:27 JST</td><td>crypto_technical</td><td>XRP</td><td>🟢 LONG</td><td>$1.41</td></tr><tr><td>2026-08-27 12:27 JST</td><td>crypto_technical</td><td>ETH</td><td>🟢 LONG</td><td>$2,494.27</td></tr><tr><td>2026-08-27 12:27 JST</td><td>crypto_technical</td><td>BTC</td><td>🟢 LONG</td><td>$78,889.39</td></tr><tr><td>2026-08-27 07:24 JST</td><td>crypto_technical</td><td>XRP</td><td>🔴 SHORT</td><td>$1.41</td></tr><tr><td>2026-08-27 07:24 JST</td><td>crypto_technical</td><td>SOL</td><td>🟢 LONG</td><td>$100.60</td></tr><tr><td>2026-08-27 07:24 JST</td><td>crypto_technical</td><td>ETH</td><td>🟢 LONG</td><td>$2,513.08</td></tr><tr><td>2026-08-27 07:23 JST</td><td>crypto_technical</td><td>BTC</td><td>🔴 SHORT</td><td>$78,953.24</td></tr><tr><td>2026-08-27 04:02 JST</td><td>crypto_technical</td><td>XRP</td><td>🔴 SHORT</td><td>$1.39</td></tr><tr><td>2026-08-27 04:02 JST</td><td>crypto_technical</td><td>ETH</td><td>🟢 LONG</td><td>$2,471.76</td></tr><tr><td>2026-08-27 01:19 JST</td><td>crypto_technical</td><td>SOL</td><td>🔴 SHORT</td><td>$95.80</td></tr><tr><td>2026-08-27 01:19 JST</td><td>crypto_technical</td><td>ETH</td><td>🔴 SHORT</td><td>$2,448.71</td></tr><tr><td>2026-08-27 01:19 JST</td><td>crypto_technical</td><td>BTC</td><td>🔴 SHORT</td><td>$78,010.67</td></tr></tbody></table></div>
+    <table class='filterable'><thead><tr><th>時刻</th><th>ソース</th><th>資産</th><th>方向・根拠</th></tr></thead><tbody><tr data-asset='BTC'><td>08-27 23:59</td><td>x</td><td><span class='asset' style='color:#f7931a'>BTC</span></td><td title='Bitcoinまだ上がってるし、GDP1.5%なら強気継続でしょって思ってる人、そこ一番雑に見たらあかんで🔨 今回の米GDPは 予想：1.5% 結果：1.5% つまり、数字自体はほぼ織り込み通り。 たしかに前回2.1%→1.5%まで景気は減速してるから、「FRBが強く利上げしにくくなる」って期待にはつながりやすい。 https://t.co/sSIkD6duq5'>🟢 LONG<span class="basis"> · Bitcoinまだ上がってるし、GDP1.5…</span></td></tr><tr data-asset='市場全体'><td>08-27 23:59</td><td>x</td><td><span class='asset' style='color:#c9c9c9'>市場全体</span></td><td title='大事なんは「下がったこと」じゃなくて、 ・なぜ下がった？ ・どこまでなら押し目の範囲？ ・どこを割ったら上目線を捨てる？ ・下がった先で買いが戻ってる？ ここまで見ること。 上昇トレンドでも調整は普通に入るし、 むしろ一回下げるから次の上昇に必要な買い場ができることもある。'>🟢 LONG<span class="basis"> · 大事なんは「下がったこと」じゃなくて、 ・な…</span></td></tr><tr data-asset='ETH'><td>08-27 23:32</td><td>tech</td><td><span class='asset' style='color:#9fa8ff'>ETH</span></td><td>🟢 LONG</td></tr><tr data-asset='BTC'><td>08-27 23:31</td><td>tech</td><td><span class='asset' style='color:#f7931a'>BTC</span></td><td>🟢 LONG</td></tr><tr data-asset='XRP'><td>08-27 12:27</td><td>tech</td><td><span class='asset' style='color:#5ac8fa'>XRP</span></td><td>🟢 LONG</td></tr><tr data-asset='ETH'><td>08-27 12:27</td><td>tech</td><td><span class='asset' style='color:#9fa8ff'>ETH</span></td><td>🟢 LONG</td></tr><tr data-asset='BTC'><td>08-27 12:27</td><td>tech</td><td><span class='asset' style='color:#f7931a'>BTC</span></td><td>🟢 LONG</td></tr><tr data-asset='XRP'><td>08-27 07:24</td><td>tech</td><td><span class='asset' style='color:#5ac8fa'>XRP</span></td><td>🔴 SHORT</td></tr><tr data-asset='SOL'><td>08-27 07:24</td><td>tech</td><td><span class='asset' style='color:#4df3c4'>SOL</span></td><td>🟢 LONG</td></tr><tr data-asset='ETH'><td>08-27 07:24</td><td>tech</td><td><span class='asset' style='color:#9fa8ff'>ETH</span></td><td>🟢 LONG</td></tr><tr data-asset='BTC'><td>08-27 07:23</td><td>tech</td><td><span class='asset' style='color:#f7931a'>BTC</span></td><td>🔴 SHORT</td></tr><tr data-asset='XRP'><td>08-27 04:02</td><td>tech</td><td><span class='asset' style='color:#5ac8fa'>XRP</span></td><td>🔴 SHORT</td></tr><tr data-asset='ETH'><td>08-27 04:02</td><td>tech</td><td><span class='asset' style='color:#9fa8ff'>ETH</span></td><td>🟢 LONG</td></tr><tr data-asset='SOL'><td>08-27 01:19</td><td>tech</td><td><span class='asset' style='color:#4df3c4'>SOL</span></td><td>🔴 SHORT</td></tr><tr data-asset='ETH'><td>08-27 01:19</td><td>tech</td><td><span class='asset' style='color:#9fa8ff'>ETH</span></td><td>🔴 SHORT</td></tr><tr data-asset='BTC'><td>08-27 01:19</td><td>tech</td><td><span class='asset' style='color:#f7931a'>BTC</span></td><td>🔴 SHORT</td></tr></tbody></table>
   </section>
 
   <div class="disclaimer">
     ※このダッシュボードは記録・分析支援を目的としたものであり、投資助言ではありません。
-    自動売買は行っていません。
+    自動売買は行っていません。上のチップで表示する資産を絞り込めます(この端末にのみ記憶されます)。
   </div>
+
+  
+<script>
+(function () {
+  var STORAGE_KEY = "dashboard_hidden_assets";
+  var hidden = [];
+  try {
+    hidden = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+  } catch (e) { hidden = []; }
+
+  function applyFilter() {
+    var checked = {};
+    document.querySelectorAll(".asset-toggle").forEach(function (box) {
+      checked[box.value] = box.checked;
+    });
+    document.querySelectorAll("table.filterable tbody tr").forEach(function (row) {
+      var asset = row.getAttribute("data-asset");
+      row.style.display = (checked[asset] === false) ? "none" : "";
+    });
+  }
+
+  document.querySelectorAll(".asset-toggle").forEach(function (box) {
+    if (hidden.indexOf(box.value) !== -1) box.checked = false;
+    box.addEventListener("change", function () {
+      var nowHidden = [];
+      document.querySelectorAll(".asset-toggle").forEach(function (b) {
+        if (!b.checked) nowHidden.push(b.value);
+      });
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(nowHidden)); } catch (e) {}
+      applyFilter();
+    });
+  });
+
+  applyFilter();
+})();
+</script>
+
 </body>
 </html>

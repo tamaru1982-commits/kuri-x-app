@@ -139,7 +139,8 @@ def main():
         print(f"{signal} だがクールダウン中のためスキップ")
         return 0
 
-    db_utils.log_signal(SOURCE_NAME, "BTC", signal, None, message=pattern_key)
+    db_utils.log_signal(SOURCE_NAME, "BTC", signal, None,
+                         message=f"{pattern_key} n{stats['sample_count']} {stats['up_ratio_pct']}%")
     send_discord_notification(pattern_key, stats, signal, data_range)
     return 0
 
