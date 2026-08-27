@@ -1,0 +1,43 @@
+# 15分おきに実行: Whale Alert(@whale_alert)の投稿から取引所への大口入出金を検知しDiscordに通知
+#
+# 注意: X APIは従量課金です。x_signal.ymlと合わせた頻度・コストで検討してください。
+
+name: Whale Signal Notifier
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"  # 15分おき
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  check-and-notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 依存関係インストール
+        run: pip install requests
+
+      - name: クジラ投稿チェック&通知
+        env:
+          X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          # WHALE_COOLDOWN_MINUTES は任意設定。Secretsが未設定だと空文字列が渡り
+          # スクリプト側のデフォルト値処理が壊れるため、変更したい場合のみ値を設定して追加してください。
+          # WHALE_COOLDOWN_MINUTES: ${{ secrets.WHALE_COOLDOWN_MINUTES }}
+        run: python whale_signal_notifier.py
+
+      - name: 状態ファイル&DBをコミット
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add whale_signal_state.json trading_system.db
+          git diff --staged --quiet || git commit -m "update whale signal state"
+          git push

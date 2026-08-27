@@ -203,6 +203,36 @@ python journal_report.py
 - `FOMC_MEETING_DATES` は自動取得できないため、`economic_calendar_reminder.py` 内に手動で追記してください
   (公式スケジュール: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm )
 
+---
+
+## フェーズ3: クジラ(大口)監視
+
+`whale_signal_notifier.py` + `whale_signal.yml` を使うと、大口の暗号資産移動を
+自動検知して投稿するXアカウント(`@whale_alert`)の投稿を監視し、
+「取引所への入金/出金」をLONG/SHORTのサインとしてDiscordに通知できます。
+
+### 判定ロジック(簡易的な経験則)
+
+- BTC/ETH等の主要資産が取引所へ入金された → 売り圧力の可能性(SHORT)
+- ステーブルコイン(USDT/USDC等)が取引所へ入金された → 買い準備の可能性(LONG)
+- 資産が取引所から出金された → 長期保有の意思表示(LONG)
+
+`db_utils.py`に`source="whale_flow"`として記録され、`confluence_checker.py`が
+テクニカル・X投稿・クジラの一致も自動的に検知します。
+
+### セットアップ手順
+
+1. `whale_signal_notifier.py`をリポジトリ直下にアップロード
+2. `whale_signal.yml`を`.github/workflows/whale_signal.yml`に配置
+3. Secretsは既存のもの(`X_BEARER_TOKEN`, `DISCORD_WEBHOOK_URL`)を共用可能。追加は不要
+
+### 注意事項
+
+- Whale Alertの投稿フォーマットへの単純なパターンマッチによる判定です。
+  投稿フォーマットが変更されると抽出できなくなる可能性があります
+- 大口移動は取引所の内部振替(コールドウォレット間移動など)の場合もあり、
+  必ずしも売買意図を意味しません。投資助言ではありません
+
 ### 全体としての位置づけ・限界
 
 - これは「判断材料を増やし、記録を残し、リスクを可視化する」ためのツール群であり、
