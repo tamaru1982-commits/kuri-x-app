@@ -29,7 +29,7 @@ import db_utils
 
 # ============ 設定 ============
 
-TARGET_USERNAME = "example_user"  # ← 監視したい人のユーザー名に変更してください
+TARGET_USERNAME = "neko_btc_trader"
 
 LONG_KEYWORDS = ["買い", "上昇", "強気", "ロング", "bullish", "long"]
 SHORT_KEYWORDS = ["売り", "下落", "弱気", "ショート", "bearish", "short"]
