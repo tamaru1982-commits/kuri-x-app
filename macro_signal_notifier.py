@@ -69,11 +69,13 @@ def determine_current_regime() -> tuple[str, str] | None:
 
 def send_discord_notification(pattern_key: str, stats: dict, signal: str, data_range: str):
     emoji = "🟢" if signal == "LONG" else "🔴"
+    short_note = "\nℹ️ 現物運用のため「SHORT」は空売りではなく「保有中なら売却/未保有なら買い見送り」の意味です。" if signal == "SHORT" else ""
     message = (
         f"{emoji} **📊 マクロ相関シグナル: {signal} (BTC)**\n"
         f"現在の環境: {pattern_key}\n"
         f"過去の傾向(n={stats['sample_count']}ヶ月, {data_range}): "
-        f"翌月平均{stats['avg_move_pct']:+.2f}% / 上昇確率{stats['up_ratio_pct']}%\n\n"
+        f"翌月平均{stats['avg_move_pct']:+.2f}% / 上昇確率{stats['up_ratio_pct']}%\n"
+        f"{short_note}\n"
         f"_※雇用統計・金・ドル・AI株(NVDA)の月次パターンに基づく参考情報です。"
         f"サンプル数が少なく統計的根拠は他のシグナルより弱いため、単独での売買判断は避けてください。"
         f"投資助言ではありません。_"

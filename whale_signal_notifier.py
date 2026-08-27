@@ -154,11 +154,13 @@ def judge_signal_from_text(text: str) -> dict | None:
 def send_discord_notification(tweet_text: str, signal: str, asset: str, reason: str, tweet_id: str):
     emoji = "🟢" if signal == "LONG" else "🔴"
     tweet_url = f"https://x.com/{TARGET_USERNAME}/status/{tweet_id}"
+    short_note = "\nℹ️ 現物運用のため「SHORT」は空売りではなく「保有中なら売却/未保有なら買い見送り」の意味です。" if signal == "SHORT" else ""
     message = (
         f"{emoji} **🐋 クジラ検知: {signal} ({asset})**\n"
         f"理由: {reason}\n"
         f"> {tweet_text}\n"
-        f"{tweet_url}\n\n"
+        f"{tweet_url}\n"
+        f"{short_note}\n"
         f"_※大口移動の単純なパターンマッチによる簡易判定です。投資助言ではありません。_"
     )
 

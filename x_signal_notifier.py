@@ -134,10 +134,12 @@ def send_discord_notification(username: str, tweet_text: str, signal: str, tweet
         emoji = "⚠️"
 
     tweet_url = f"https://x.com/{username}/status/{tweet_id}"
+    short_note = "\nℹ️ 現物運用のため「SHORT」は空売りではなく「保有中なら売却/未保有なら買い見送り」の意味です。" if signal == "SHORT" else ""
     message = (
         f"{emoji} **@{username} の投稿からサイン検出: {signal} ({asset})**\n"
         f"> {tweet_text}\n"
-        f"{tweet_url}\n\n"
+        f"{tweet_url}\n"
+        f"{short_note}\n"
         f"_※キーワードマッチによる簡易判定です。投資助言ではありません。_"
     )
 

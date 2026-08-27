@@ -137,6 +137,11 @@ def build_discord_message(results: list) -> str:
         lines.append(caution)
         lines.append("")
 
+    has_short = any(r["result"]["signal"] == "SHORT" for r in results)
+    if has_short:
+        lines.append("ℹ️ 現物運用のため「SHORT」は空売りではなく「保有中なら売却/未保有なら買い見送り」の意味です。")
+        lines.append("")
+
     for r in results:
         symbol = r["symbol"]
         signal = r["result"]["signal"]
