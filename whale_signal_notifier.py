@@ -71,20 +71,19 @@ KNOWN_EXCHANGES = [
 ]
 
 
-# ============ 状態の読み書き(新着投稿の重複取得防止) ============
+# ============ 状態の読み書き(新着投稿の重複取得防止 + ユーザーIDキャッシュ) ============
 
-def load_last_seen_id() -> str | None:
+def load_state() -> dict:
     if STATE_FILE.exists():
         try:
-            data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
-            return data.get("last_seen_id")
+            return json.loads(STATE_FILE.read_text(encoding="utf-8"))
         except Exception:
-            return None
-    return None
+            return {}
+    return {}
 
 
-def save_last_seen_id(tweet_id: str):
-    STATE_FILE.write_text(json.dumps({"last_seen_id": tweet_id}, ensure_ascii=False), encoding="utf-8")
+def save_state(state: dict):
+    STATE_FILE.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
 
 
 # ============ X API呼び出し(x_signal_notifier.pyと同一パターン) ============
@@ -185,8 +184,16 @@ def main():
 
     db_utils.init_db()
 
-    user_id = get_user_id(TARGET_USERNAME)
-    last_seen_id = load_last_seen_id()
+    state = load_state()
+    if state.get("user_id") and state.get("username") == TARGET_USERNAME:
+        user_id = state["user_id"]
+    else:
+        user_id = get_user_id(TARGET_USERNAME)
+        state["user_id"] = user_id
+        state["username"] = TARGET_USERNAME
+        save_state(state)  # 後続処理が失敗しても無駄な再取得をしないよう先に保存
+
+    last_seen_id = state.get("last_seen_id")
     tweets = get_recent_tweets(user_id, last_seen_id)
 
     if not tweets:
@@ -214,7 +221,8 @@ def main():
         newest_id = tweet_id
 
     if newest_id:
-        save_last_seen_id(newest_id)
+        state["last_seen_id"] = newest_id
+        save_state(state)
 
     return 0
 
