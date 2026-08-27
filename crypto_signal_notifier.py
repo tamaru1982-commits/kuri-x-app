@@ -63,7 +63,12 @@ SOURCE_NAME = "crypto_technical"
 def fetch_price_history(coin_id: str, vs_currency: str = "usd", days: int = 7) -> pd.DataFrame:
     url = f"{COINGECKO_BASE}/coins/{coin_id}/market_chart"
     params = {"vs_currency": vs_currency, "days": days}
+
     resp = requests.get(url, params=params, timeout=15)
+    if resp.status_code == 429:
+        # 銘柄数が増えたことでレート制限に当たることがあるため、少し待って1回だけ再試行する
+        time.sleep(15)
+        resp = requests.get(url, params=params, timeout=15)
     resp.raise_for_status()
     data = resp.json()
 
@@ -223,7 +228,7 @@ def main():
             print(f"[エラー] {symbol} の取得/計算に失敗しました: {e}")
             results.append({"symbol": symbol, "result": {"signal": "取得エラー", "price": None, "rsi": None}})
 
-        time.sleep(1.5)
+        time.sleep(4)
 
     if any_to_notify:
         message = build_discord_message(results)
