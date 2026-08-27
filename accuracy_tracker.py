@@ -27,6 +27,12 @@ SYMBOL_TO_COINGECKO_ID = {
     "ETH": "ethereum",
     "SOL": "solana",
     "XRP": "ripple",
+    "HYPE": "hyperliquid",
+    "DOGE": "dogecoin",
+    "EDGE": "edgex",
+    "TRIA": "tria",
+    "SUI": "sui",
+    "AAVE": "aave",
 }
 
 # 週次サマリーをどの曜日に送るか(0=月曜 ... 6=日曜)。Noneなら毎回送る。

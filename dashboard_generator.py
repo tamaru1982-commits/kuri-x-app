@@ -30,12 +30,18 @@ SOURCE_ABBREV = {
     "confluence": "conf",
 }
 
-# 資産ごとに文字色を割り当てて識別しやすくする(ダーク背景での視認性を優先した配色)
+# 資産ごとに文字色を割り当てて識別しやすくする(ダーク背景での視認性・色相の分散を優先した配色)
 ASSET_COLORS = {
     "BTC": "#f7931a",
-    "ETH": "#9fa8ff",
+    "DOGE": "#f0c419",
     "SOL": "#4df3c4",
+    "EDGE": "#2dd4bf",
     "XRP": "#5ac8fa",
+    "SUI": "#4f8cff",
+    "ETH": "#9fa8ff",
+    "TRIA": "#c084fc",
+    "HYPE": "#ff6ec7",
+    "AAVE": "#ff5c5c",
     "USDT": "#4dd8ab",
     "USDC": "#5b9bff",
     "市場全体": "#c9c9c9",
@@ -74,6 +80,34 @@ def compact_basis(text: str, max_len: int = 22) -> str:
     return flat
 
 
+def compact_price(price) -> str:
+    if price is None:
+        return ""
+    if price >= 1000:
+        return f"${price:,.0f}"
+    if price >= 1:
+        return f"${price:,.2f}"
+    return f"${price:.4f}"
+
+
+def group_by_asset_keep_recency(rows: list) -> list:
+    """同じ資産の行をまとめて連続させつつ、グループ自体は直近の出現順を保つ。
+    rows は事前に timestamp 降順でソート済みであることを前提とする。"""
+    groups: dict[str, list] = {}
+    order: list[str] = []
+    for r in rows:
+        asset = r["asset"]
+        if asset not in groups:
+            groups[asset] = []
+            order.append(asset)
+        groups[asset].append(r)
+
+    flattened = []
+    for asset in order:
+        flattened.extend(groups[asset])
+    return flattened
+
+
 def collect_assets(*row_groups) -> list[str]:
     assets = set()
     for rows in row_groups:
@@ -97,11 +131,16 @@ def render_recent_signals(rows) -> str:
     if not rows:
         return "<p class='muted'>直近のシグナルはありません。</p>"
 
+    latest_30 = sorted(rows, key=lambda x: x["timestamp"], reverse=True)[:30]
+    grouped = group_by_asset_keep_recency(latest_30)
+
     items = []
-    for r in sorted(rows, key=lambda x: x["timestamp"], reverse=True)[:30]:
+    for r in grouped:
         full_message = r["message"] or ""
-        basis = html.escape(compact_basis(full_message))
-        title_attr = f" title='{html.escape(' '.join(full_message.split()))}'" if basis else ""
+        price_str = compact_price(r["price_at_signal"])
+        basis_parts = [p for p in (price_str, compact_basis(full_message)) if p]
+        basis = html.escape(" · ".join(basis_parts))
+        title_attr = f" title='{html.escape(' '.join(full_message.split()))}'" if full_message else ""
         items.append(
             f"<tr data-asset='{html.escape(r['asset'])}'>"
             f"<td>{to_short_time(r['timestamp'])}</td>"

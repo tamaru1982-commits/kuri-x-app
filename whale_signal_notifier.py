@@ -39,7 +39,7 @@ import db_utils
 
 TARGET_USERNAME = "whale_alert"
 
-TRACKED_ASSETS = {"BTC", "ETH", "SOL", "XRP"}
+TRACKED_ASSETS = {"BTC", "ETH", "SOL", "XRP", "HYPE", "DOGE", "EDGE", "TRIA", "SUI", "AAVE"}
 STABLECOINS = {"USDT", "USDC", "BUSD", "DAI", "FDUSD", "TUSD"}
 
 MAX_RESULTS = 10

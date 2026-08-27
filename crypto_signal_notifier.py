@@ -34,6 +34,12 @@ COINS = [
     {"id": "ethereum", "symbol": "ETH"},
     {"id": "solana", "symbol": "SOL"},
     {"id": "ripple", "symbol": "XRP"},
+    {"id": "hyperliquid", "symbol": "HYPE"},
+    {"id": "dogecoin", "symbol": "DOGE"},
+    {"id": "edgex", "symbol": "EDGE"},
+    {"id": "tria", "symbol": "TRIA"},
+    {"id": "sui", "symbol": "SUI"},
+    {"id": "aave", "symbol": "AAVE"},
 ]
 
 VS_CURRENCY = "usd"

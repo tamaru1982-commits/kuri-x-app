@@ -40,6 +40,13 @@ ASSET_KEYWORDS = {
     "ETH": ["eth", "イーサ", "ethereum"],
     "SOL": ["sol", "ソラナ", "solana"],
     "XRP": ["xrp", "リップル", "ripple"],
+    # HYPE/EDGE/TRIA/SUIは一般英単語と衝突しやすいため、bareな短縮形は避けて誤検知を抑える
+    "HYPE": ["hyperliquid", "$hype", "ハイパーリキッド"],
+    "DOGE": ["doge", "dogecoin", "ドージコイン"],
+    "EDGE": ["edgex", "$edge", "エッジエックス"],
+    "TRIA": ["$tria", "triacoin", "トライア"],
+    "SUI": ["$sui", "sui network", "スイネットワーク"],
+    "AAVE": ["aave", "アーベ"],
 }
 DEFAULT_ASSET_LABEL = "市場全体"
 
