@@ -19,7 +19,9 @@ Phase2更新:
 import os
 import sys
 import time
+import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 import requests
 import pandas as pd
@@ -52,6 +54,13 @@ RSI_OVERSOLD = 30
 
 COOLDOWN_MINUTES = int(os.environ.get("CRYPTO_COOLDOWN_MINUTES", "180"))  # 同一資産・同一方向の再通知間隔
 
+# was_recently_notified はsource+asset+directionで判定するため、方向が反転した瞬間は
+# クールダウンを素通りしてしまう(LONG<->SHORTの切り替えは「別方向」扱いになるため)。
+# レンジ相場でSMAクロスが小刻みに反転する「ダマシ」への往復ビンタ通知を減らすため、
+# 直近CONFIRM_COUNT回連続で同じ方向が出た場合のみ通知する確認フィルタを設ける。
+CONFIRM_COUNT = int(os.environ.get("CRYPTO_CONFIRM_COUNT", "2"))
+STATE_FILE = Path("crypto_signal_state.json")
+
 # 押し目シグナル: トレンド方向(SMA)に関わらず、RSIが売られすぎ圏に入ったこと自体を
 # 現物の買い候補として知らせる(トレンドフォローのLONG/SHORTとは独立した別軸の指標)
 DIP_RSI_THRESHOLD = float(os.environ.get("DIP_RSI_THRESHOLD", str(RSI_OVERSOLD)))
@@ -61,6 +70,21 @@ DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 COINGECKO_BASE = "https://api.coingecko.com/api/v3"
 
 SOURCE_NAME = "crypto_technical"
+
+
+# ============ 状態の読み書き(連続確認カウントの保持) ============
+
+def load_state() -> dict:
+    if STATE_FILE.exists():
+        try:
+            return json.loads(STATE_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
+
+
+def save_state(state: dict):
+    STATE_FILE.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
 
 
 # ============ データ取得 ============
@@ -169,7 +193,7 @@ def build_discord_message(results: list) -> str:
             emoji = "🟢"
         elif signal == "SHORT":
             emoji = "🔴"
-        elif signal == "様子見":
+        elif signal.startswith("様子見"):
             emoji = "⚪"
         else:
             emoji = "⚠️"
@@ -228,6 +252,7 @@ def send_discord_notification(message: str):
 
 def main():
     db_utils.init_db()
+    state = load_state()
     results = []
     dip_signals = []
     any_to_notify = False
@@ -240,15 +265,26 @@ def main():
             df = compute_sma(df, SMA_SHORT, SMA_LONG)
             df = compute_rsi(df, RSI_PERIOD)
             result = judge_signal(df)
+            raw_signal = result["signal"]
 
-            # クールダウンチェック(LONG/SHORTのみ対象)
-            if result["signal"] in ("LONG", "SHORT"):
-                if db_utils.was_recently_notified(SOURCE_NAME, symbol, result["signal"], COOLDOWN_MINUTES):
-                    print(f"{symbol}: {result['signal']} だがクールダウン中のためスキップ")
+            if raw_signal in ("LONG", "SHORT"):
+                # 直近CONFIRM_COUNT回連続で同じ方向かを確認(ダマシによる往復ビンタ通知を防止)
+                prev = state.get(symbol, {})
+                streak = prev.get("count", 0) + 1 if prev.get("last_signal") == raw_signal else 1
+                state[symbol] = {"last_signal": raw_signal, "count": streak}
+
+                if streak < CONFIRM_COUNT:
+                    print(f"{symbol}: {raw_signal}(確認{streak}/{CONFIRM_COUNT}回目のため様子見扱い)")
+                    result["signal"] = f"様子見(確認中{streak}/{CONFIRM_COUNT})"
+                elif db_utils.was_recently_notified(SOURCE_NAME, symbol, raw_signal, COOLDOWN_MINUTES):
+                    print(f"{symbol}: {raw_signal} だがクールダウン中のためスキップ")
                     result["signal"] = "様子見(クールダウン中)"
                 else:
-                    db_utils.log_signal(SOURCE_NAME, symbol, result["signal"], result["price"], message=f"RSI{result['rsi']:.0f}")
+                    db_utils.log_signal(SOURCE_NAME, symbol, raw_signal, result["price"], message=f"RSI{result['rsi']:.0f}")
                     any_to_notify = True
+            else:
+                # 様子見/データ不足時は連続確認カウントをリセット(方向転換の再確認をやり直す)
+                state.pop(symbol, None)
 
             # 押し目チェック(SMAトレンドとは無関係。RSI単独で判定)
             rsi_val = result.get("rsi")
@@ -267,6 +303,8 @@ def main():
             results.append({"symbol": symbol, "result": {"signal": "取得エラー", "price": None, "rsi": None}})
 
         time.sleep(6)
+
+    save_state(state)
 
     if any_to_notify:
         message = build_discord_message(results)
