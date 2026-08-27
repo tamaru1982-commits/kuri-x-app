@@ -1,4 +1,7 @@
-# 15分おきに実行: Whale Alert(@whale_alert)の投稿から取引所への大口入出金を検知しDiscordに通知
+# 指定時間帯のみ15分おきに実行: Whale Alert(@whale_alert)の投稿から取引所への大口入出金を検知しDiscordに通知
+#
+# 実行時間帯(JST): 7,8,12,13,15,17,19,20,21,22,23,24(0),1,2時 のみ(x_signal.ymlと同じ)
+#   -> UTC: 22,23,3,4,6,8,10,11,12,13,14,15,16,17時 (cronはUTC基準)
 #
 # 注意: X APIは従量課金です。x_signal.ymlと合わせた頻度・コストで検討してください。
 
@@ -6,7 +9,7 @@ name: Whale Signal Notifier
 
 on:
   schedule:
-    - cron: "*/15 * * * *"  # 15分おき
+    - cron: "*/15 3,4,6,8,10,11,12,13,14,15,16,17,22,23 * * *"  # 指定時間帯のみ15分おき
   workflow_dispatch: {}
 
 permissions:
