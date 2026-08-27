@@ -24,6 +24,7 @@ JST = timedelta(hours=9)
 # モバイルでの横スクロールを避けるため短縮表記にする
 SOURCE_ABBREV = {
     "crypto_technical": "tech",
+    "crypto_dip": "dip",
     "x_post": "x",
     "whale_flow": "whale",
     "macro_pattern": "macro",

@@ -52,6 +52,11 @@ RSI_OVERSOLD = 30
 
 COOLDOWN_MINUTES = int(os.environ.get("CRYPTO_COOLDOWN_MINUTES", "180"))  # 同一資産・同一方向の再通知間隔
 
+# 押し目シグナル: トレンド方向(SMA)に関わらず、RSIが売られすぎ圏に入ったこと自体を
+# 現物の買い候補として知らせる(トレンドフォローのLONG/SHORTとは独立した別軸の指標)
+DIP_RSI_THRESHOLD = float(os.environ.get("DIP_RSI_THRESHOLD", str(RSI_OVERSOLD)))
+SOURCE_DIP = "crypto_dip"
+
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 COINGECKO_BASE = "https://api.coingecko.com/api/v3"
 
@@ -187,6 +192,25 @@ def build_discord_message(results: list) -> str:
     return "\n".join(lines)
 
 
+def build_dip_message(dip_signals: list) -> str:
+    now_str = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M")
+    lines = [
+        f"**💧 押し目シグナル ({now_str})**", "",
+        "_トレンド方向に関わらず、RSIが売られすぎ圏(閾値以下)に入った銘柄です。"
+        "現物での買い候補の参考情報です。_", "",
+    ]
+
+    for d in dip_signals:
+        lines.append(f"🔵 **{d['symbol']}**: 価格 ${d['price']:,.2f} | RSI {d['rsi']:.1f}")
+        risk_line = risk_utils.format_risk_line(d["price"], "LONG")
+        if risk_line:
+            lines.append(f"　{risk_line}")
+
+    lines.append("")
+    lines.append("_※下落が続く可能性もあり、買い時を保証するものではありません。投資助言ではありません。_")
+    return "\n".join(lines)
+
+
 def send_discord_notification(message: str):
     if not DISCORD_WEBHOOK_URL:
         print("[警告] DISCORD_WEBHOOK_URL が設定されていないため、コンソールに出力のみ行います。")
@@ -205,6 +229,7 @@ def send_discord_notification(message: str):
 def main():
     db_utils.init_db()
     results = []
+    dip_signals = []
     any_to_notify = False
 
     for coin in COINS:
@@ -225,6 +250,16 @@ def main():
                     db_utils.log_signal(SOURCE_NAME, symbol, result["signal"], result["price"], message=f"RSI{result['rsi']:.0f}")
                     any_to_notify = True
 
+            # 押し目チェック(SMAトレンドとは無関係。RSI単独で判定)
+            rsi_val = result.get("rsi")
+            price_val = result.get("price")
+            if rsi_val is not None and pd.notna(rsi_val) and price_val is not None and rsi_val <= DIP_RSI_THRESHOLD:
+                if db_utils.was_recently_notified(SOURCE_DIP, symbol, "LONG", COOLDOWN_MINUTES):
+                    print(f"{symbol}: 押し目候補(RSI{rsi_val:.0f}) だがクールダウン中のためスキップ")
+                else:
+                    db_utils.log_signal(SOURCE_DIP, symbol, "LONG", price_val, message=f"押し目 RSI{rsi_val:.0f}")
+                    dip_signals.append({"symbol": symbol, "price": price_val, "rsi": rsi_val})
+
             results.append({"symbol": symbol, "result": result})
             print(f"{symbol}: {result['signal']}")
         except Exception as e:
@@ -238,6 +273,11 @@ def main():
         send_discord_notification(message)
     else:
         print("新規のLONG/SHORTシグナルがないため、通知はスキップしました。")
+
+    if dip_signals:
+        send_discord_notification(build_dip_message(dip_signals))
+    else:
+        print("新規の押し目シグナルはありません。")
 
 
 if __name__ == "__main__":

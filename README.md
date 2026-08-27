@@ -46,7 +46,16 @@ python crypto_signal_notifier.py
 - `COINS`: 監視したい銘柄を追加・削除（CoinGeckoのcoin idを指定）
 - `SMA_SHORT` / `SMA_LONG`: 移動平均の期間
 - `RSI_PERIOD` / `RSI_OVERBOUGHT` / `RSI_OVERSOLD`: RSIの判定閾値
+- `DIP_RSI_THRESHOLD`: 押し目シグナル（下記）のRSI閾値（既定値はRSI_OVERSOLDと同じ）
 - `crypto_signal.yml` の `cron`: 通知頻度（現在は30分おき）
+
+### 押し目シグナルについて
+
+`LONG`/`SHORT`はSMAクロスによる**トレンドフォロー型**の判定のため、「もう上昇トレンドに入った後」に
+出る性質があり、現物で安く仕込みたいタイミングとは噛み合わないことがあります。そこで、
+トレンド方向とは無関係に**RSIが売られすぎ圏(既定30以下)に入ったこと自体**を押し目候補として
+別枠(`source="crypto_dip"`)で通知します。ダウントレンド中で`SHORT`判定が出ている銘柄でも、
+RSIが下がりきっていれば押し目シグナルは独立して発火します。
 
 ## 注意事項
 
