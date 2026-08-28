@@ -13,6 +13,7 @@ dashboard.yml(定期実行)から呼び出され、生成後にdocs/index.html�
 """
 
 import html
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -333,11 +334,96 @@ def build_html() -> str:
 """
 
 
+# ============ about.html(クジラ規模分布の差し込み) ============
+
+ABOUT_TEMPLATE_FILE = Path("about_template.html")
+ABOUT_OUTPUT_FILE = Path("docs/about.html")
+
+# whale_signal_notifier.pyのWHALE_TIERSと揃えたランク定義(ダッシュボード側は独立して集計するため複製)
+WHALE_TIERS = [
+    (100_000_000, "🐳 超大口(メガクジラ)"),
+    (50_000_000, "🐋 大口"),
+    (10_000_000, "🐬 中口"),
+    (0, "🐟 小口"),
+]
+WHALE_AMOUNT_PATTERN = re.compile(r"\$([\d,]+)\s*$")
+
+
+def compute_whale_distribution() -> tuple[list[dict], int, int]:
+    """whale_flowシグナルのmessageから金額を抜き出し、規模別の件数・割合を集計する。
+    戻り値: (ランクごとの内訳, 金額判明件数, 金額不明件数)"""
+    conn = db_utils.get_conn()
+    rows = conn.execute("SELECT message FROM signals WHERE source = 'whale_flow'").fetchall()
+    conn.close()
+
+    counts = {label: 0 for _, label in WHALE_TIERS}
+    known_total = 0
+    unknown_total = 0
+
+    for row in rows:
+        match = WHALE_AMOUNT_PATTERN.search(row["message"] or "")
+        if not match:
+            unknown_total += 1
+            continue
+        amount = float(match.group(1).replace(",", ""))
+        for threshold, label in WHALE_TIERS:
+            if amount >= threshold:
+                counts[label] += 1
+                break
+        known_total += 1
+
+    breakdown = []
+    for _, label in WHALE_TIERS:
+        pct = round(counts[label] / known_total * 100, 1) if known_total else 0
+        breakdown.append({"label": label, "count": counts[label], "pct": pct})
+
+    return breakdown, known_total, unknown_total
+
+
+def render_whale_distribution() -> str:
+    breakdown, known_total, unknown_total = compute_whale_distribution()
+
+    if known_total == 0:
+        return "<p class='muted'>まだ金額が判明しているクジラ検知データがありません。</p>"
+
+    bars = []
+    for row in breakdown:
+        bars.append(
+            "<div style='margin-bottom:8px;'>"
+            f"<div style='display:flex;justify-content:space-between;font-size:0.85rem;'>"
+            f"<span>{html.escape(row['label'])}</span><span>{row['count']}件 ({row['pct']}%)</span></div>"
+            f"<div style='background:#262a33;border-radius:4px;height:8px;overflow:hidden;'>"
+            f"<div style='background:#4f8cff;height:100%;width:{row['pct']}%;'></div></div>"
+            "</div>"
+        )
+
+    note = f"<p class='muted' style='font-size:0.75rem;'>合計{known_total}件(金額判明分)を集計"
+    if unknown_total:
+        note += f"。金額不明{unknown_total}件は除外"
+    note += "。あくまで簡易集計で、傾向をざっくり把握するためのものです。</p>"
+
+    return "".join(bars) + note
+
+
+def generate_about_page():
+    if not ABOUT_TEMPLATE_FILE.exists():
+        print(f"[警告] {ABOUT_TEMPLATE_FILE} が見つからないため、about.htmlの更新をスキップします。")
+        return
+
+    template = ABOUT_TEMPLATE_FILE.read_text(encoding="utf-8")
+    rendered = template.replace("<!--WHALE_DISTRIBUTION-->", render_whale_distribution())
+    ABOUT_OUTPUT_FILE.parent.mkdir(exist_ok=True)
+    ABOUT_OUTPUT_FILE.write_text(rendered, encoding="utf-8")
+    print(f"[OK] {ABOUT_OUTPUT_FILE} を生成しました。")
+
+
 def main():
     db_utils.init_db()
     OUTPUT_FILE.parent.mkdir(exist_ok=True)
     OUTPUT_FILE.write_text(build_html(), encoding="utf-8")
     print(f"[OK] {OUTPUT_FILE} を生成しました。")
+
+    generate_about_page()
 
 
 if __name__ == "__main__":

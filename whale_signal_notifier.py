@@ -121,13 +121,37 @@ def is_exchange(entity: str) -> bool:
     return any(exchange in entity_lower for exchange in KNOWN_EXCHANGES)
 
 
+# 金額(USD)による簡易ランク付け。Whale Alertの投稿は元々一定規模以上のみが対象なので、
+# その中でもさらに大小を区別できるよう閾値を設定している(高い順に判定)。
+WHALE_TIERS = [
+    (100_000_000, "🐳", "超大口(メガクジラ)"),
+    (50_000_000, "🐋", "大口"),
+    (10_000_000, "🐬", "中口"),
+    (0, "🐟", "小口"),
+]
+
+
+def rank_whale(amount_usd: float | None) -> tuple[str, str]:
+    if amount_usd is None:
+        return "🐋", "規模不明"
+    for threshold, emoji, label in WHALE_TIERS:
+        if amount_usd >= threshold:
+            return emoji, label
+    return "🐟", "小口"
+
+
 def judge_signal_from_text(text: str) -> dict | None:
     match = TRANSFER_PATTERN.search(text)
     if not match:
         return None
 
-    _, asset, _, source, destination = match.groups()
+    _, asset, usd_amount_str, source, destination = match.groups()
     asset = asset.upper()
+
+    try:
+        amount_usd = float(usd_amount_str.replace(",", ""))
+    except ValueError:
+        amount_usd = None
 
     if asset not in TRACKED_ASSETS and asset not in STABLECOINS:
         return None
@@ -137,25 +161,33 @@ def judge_signal_from_text(text: str) -> dict | None:
 
     if into_exchange:
         if asset in STABLECOINS:
-            return {"asset": asset, "signal": "LONG", "reason": "ステーブルコインが取引所へ入金(買い準備の可能性)"}
+            reason = "ステーブルコインが取引所へ入金(買い準備の可能性)"
+            signal = "LONG"
         else:
-            return {"asset": asset, "signal": "SHORT", "reason": "取引所へ入金(売り圧力の可能性)"}
+            reason = "取引所へ入金(売り圧力の可能性)"
+            signal = "SHORT"
     elif out_of_exchange:
         if asset in STABLECOINS:
             return None  # ステーブルコインの出金は市場シグナルとして扱わない
-        return {"asset": asset, "signal": "LONG", "reason": "取引所から出金(長期保有の意思表示)"}
+        reason = "取引所から出金(長期保有の意思表示)"
+        signal = "LONG"
+    else:
+        return None
 
-    return None
+    return {"asset": asset, "signal": signal, "reason": reason, "amount_usd": amount_usd}
 
 
 # ============ 通知 ============
 
-def send_discord_notification(tweet_text: str, signal: str, asset: str, reason: str, tweet_id: str):
+def send_discord_notification(tweet_text: str, signal: str, asset: str, reason: str, tweet_id: str, amount_usd: float | None):
     emoji = "🟢" if signal == "LONG" else "🔴"
+    rank_emoji, rank_label = rank_whale(amount_usd)
+    amount_str = f"約${amount_usd:,.0f}" if amount_usd is not None else "金額不明"
     tweet_url = f"https://x.com/{TARGET_USERNAME}/status/{tweet_id}"
     short_note = "\nℹ️ 現物運用のため「SHORT」は空売りではなく「保有中なら売却/未保有なら買い見送り」の意味です。" if signal == "SHORT" else ""
     message = (
         f"{emoji} **🐋 クジラ検知: {signal} ({asset})**\n"
+        f"規模: {rank_emoji} {rank_label}({amount_str})\n"
         f"理由: {reason}\n"
         f"> {tweet_text}\n"
         f"{tweet_url}\n"
@@ -210,11 +242,13 @@ def main():
 
         if result:
             asset, signal, reason = result["asset"], result["signal"], result["reason"]
+            amount_usd = result.get("amount_usd")
             if db_utils.was_recently_notified(SOURCE_NAME, asset, signal, COOLDOWN_MINUTES):
                 print(f"[スキップ] {asset} {signal} はクールダウン中: {text[:30]}...")
             else:
-                db_utils.log_signal(SOURCE_NAME, asset, signal, None, message=reason)
-                send_discord_notification(text, signal, asset, reason, tweet_id)
+                amount_note = f" ${amount_usd:,.0f}" if amount_usd is not None else ""
+                db_utils.log_signal(SOURCE_NAME, asset, signal, None, message=f"{reason}{amount_note}")
+                send_discord_notification(text, signal, asset, reason, tweet_id, amount_usd)
         else:
             print(f"[スキップ] 対象外/抽出不可: {text[:200]}")
 
