@@ -135,6 +135,7 @@ def main():
     positions = db_utils.get_open_positions()
     if not positions:
         print("保有中のポジションはありません。")
+        save_state(state)  # state_fileが未作成だとワークフロー側のgit addが失敗するため必ず保存する
         return 0
 
     for row in positions:
