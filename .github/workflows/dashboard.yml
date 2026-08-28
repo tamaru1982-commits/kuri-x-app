@@ -1,6 +1,7 @@
-# 15分おきに実行: trading_system.dbの内容からdocs/index.htmlを生成し、
-# GitHub Pagesで公開する。他の通知ワークフローがDBを更新した後を追いかける形で
-# 状況を可視化する(通知が来た瞬間以外でもいつでも確認できるようにするため)。
+# 15分おきに実行: trading_system.dbの内容からdocs/index.html(ダッシュボード)と
+# docs/about.html(説明ページ、クジラ規模分布を含む)を生成し、GitHub Pagesで公開する。
+# 他の通知ワークフローがDBを更新した後を追いかける形で状況を可視化する
+# (通知が来た瞬間以外でもいつでも確認できるようにするため)。
 
 name: Dashboard
 
@@ -25,10 +26,10 @@ jobs:
       - name: ダッシュボード生成
         run: python dashboard_generator.py
 
-      - name: docs/index.htmlをコミット
+      - name: docs/index.html・docs/about.htmlをコミット
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/index.html
+          git add docs/index.html docs/about.html
           git diff --staged --quiet || git commit -m "update dashboard"
           git push
