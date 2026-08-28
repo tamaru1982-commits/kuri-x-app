@@ -216,23 +216,46 @@ def build_discord_message(results: list) -> str:
     return "\n".join(lines)
 
 
-def build_dip_message(dip_signals: list) -> str:
-    now_str = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M")
-    lines = [
-        f"**💧 押し目シグナル ({now_str})**", "",
-        "_トレンド方向に関わらず、RSIが売られすぎ圏(閾値以下)に入った銘柄です。"
-        "現物での買い候補の参考情報です。_", "",
-    ]
+# 押し目「反転」シグナル用の演出色(警告レッド)。パトランプ的な視覚効果を
+# Discord Embedの縦バーで表現する。
+AWAKENING_COLOR = 0xFF3B30
 
+
+def build_awakening_payload(dip_signals: list) -> dict:
+    """押し目からの反転検知を、通常のLONG/SHORT通知とは一目で区別できる
+    派手めのDiscord Embedとして組み立てる。"""
+    fields = []
     for d in dip_signals:
-        lines.append(f"🔵 **{d['symbol']}**: 価格 ${d['price']:,.2f} | RSI {d['rsi']:.1f}")
+        value_lines = [f"RSI {d['prev_rsi']:.0f} → {d['rsi']:.0f}(反転上昇)", f"価格 ${d['price']:,.2f}"]
         risk_line = risk_utils.format_risk_line(d["price"], "LONG")
         if risk_line:
-            lines.append(f"　{risk_line}")
+            value_lines.append(risk_line)
+        fields.append({"name": f"🔴 {d['symbol']}", "value": "\n".join(value_lines), "inline": False})
 
-    lines.append("")
-    lines.append("_※下落が続く可能性もあり、買い時を保証するものではありません。投資助言ではありません。_")
-    return "\n".join(lines)
+    embed = {
+        "title": "⚡ 覚醒シグナル AWAKENING MODE ⚡",
+        "description": "売られすぎ圏からの反転初動を検知しました。現物での買い候補の参考情報です。",
+        "color": AWAKENING_COLOR,
+        "fields": fields,
+        "footer": {"text": "※反転の初動を捉えた簡易判定です。ダマシ(だまし上げ)の可能性もあります。投資助言ではありません。"},
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    content = "🚨🔴🚨 **覚醒シグナル検知** 🚨🔴🚨"
+    return {"content": content, "embeds": [embed]}
+
+
+def send_awakening_notification(dip_signals: list):
+    if not DISCORD_WEBHOOK_URL:
+        print("[警告] DISCORD_WEBHOOK_URL が設定されていないため、コンソールに出力のみ行います。")
+        for d in dip_signals:
+            print(f"🔴 覚醒: {d['symbol']} RSI {d['prev_rsi']:.0f}->{d['rsi']:.0f} 価格${d['price']:,.2f}")
+        return
+
+    resp = requests.post(DISCORD_WEBHOOK_URL, json=build_awakening_payload(dip_signals), timeout=15)
+    if resp.status_code >= 300:
+        print(f"[エラー] 覚醒シグナル通知に失敗しました: {resp.status_code} {resp.text}")
+    else:
+        print("[OK] 覚醒シグナル通知を送信しました。")
 
 
 def send_discord_notification(message: str):
@@ -253,6 +276,8 @@ def send_discord_notification(message: str):
 def main():
     db_utils.init_db()
     state = load_state()
+    confirm_state = state.setdefault("confirm", {})
+    dip_rsi_state = state.setdefault("dip_rsi", {})
     results = []
     dip_signals = []
     any_to_notify = False
@@ -269,9 +294,9 @@ def main():
 
             if raw_signal in ("LONG", "SHORT"):
                 # 直近CONFIRM_COUNT回連続で同じ方向かを確認(ダマシによる往復ビンタ通知を防止)
-                prev = state.get(symbol, {})
+                prev = confirm_state.get(symbol, {})
                 streak = prev.get("count", 0) + 1 if prev.get("last_signal") == raw_signal else 1
-                state[symbol] = {"last_signal": raw_signal, "count": streak}
+                confirm_state[symbol] = {"last_signal": raw_signal, "count": streak}
 
                 if streak < CONFIRM_COUNT:
                     print(f"{symbol}: {raw_signal}(確認{streak}/{CONFIRM_COUNT}回目のため様子見扱い)")
@@ -284,17 +309,28 @@ def main():
                     any_to_notify = True
             else:
                 # 様子見/データ不足時は連続確認カウントをリセット(方向転換の再確認をやり直す)
-                state.pop(symbol, None)
+                confirm_state.pop(symbol, None)
 
-            # 押し目チェック(SMAトレンドとは無関係。RSI単独で判定)
+            # 押し目チェック: 単に「売られすぎ圏(RSI<=閾値)」なだけでなく、
+            # 前回チェック時よりRSIが上向いた(反転の初動)場合のみ発火させる。
+            # 「落ちてるナイフ」(下げ止まっていないのに安いというだけで飛びつく)を避けるため。
             rsi_val = result.get("rsi")
             price_val = result.get("price")
-            if rsi_val is not None and pd.notna(rsi_val) and price_val is not None and rsi_val <= DIP_RSI_THRESHOLD:
-                if db_utils.was_recently_notified(SOURCE_DIP, symbol, "LONG", COOLDOWN_MINUTES):
-                    print(f"{symbol}: 押し目候補(RSI{rsi_val:.0f}) だがクールダウン中のためスキップ")
-                else:
-                    db_utils.log_signal(SOURCE_DIP, symbol, "LONG", price_val, message=f"押し目 RSI{rsi_val:.0f}")
-                    dip_signals.append({"symbol": symbol, "price": price_val, "rsi": rsi_val})
+            if rsi_val is not None and pd.notna(rsi_val) and price_val is not None:
+                prev_rsi = dip_rsi_state.get(symbol)
+                is_reversal = (
+                    rsi_val <= DIP_RSI_THRESHOLD
+                    and prev_rsi is not None
+                    and rsi_val > prev_rsi
+                )
+                if is_reversal:
+                    if db_utils.was_recently_notified(SOURCE_DIP, symbol, "LONG", COOLDOWN_MINUTES):
+                        print(f"{symbol}: 押し目反転候補(RSI{prev_rsi:.0f}→{rsi_val:.0f}) だがクールダウン中のためスキップ")
+                    else:
+                        db_utils.log_signal(SOURCE_DIP, symbol, "LONG", price_val,
+                                             message=f"押し目反転 RSI{prev_rsi:.0f}→{rsi_val:.0f}")
+                        dip_signals.append({"symbol": symbol, "price": price_val, "rsi": rsi_val, "prev_rsi": prev_rsi})
+                dip_rsi_state[symbol] = rsi_val  # 次回比較のため常に更新
 
             results.append({"symbol": symbol, "result": result})
             print(f"{symbol}: {result['signal']}")
@@ -313,7 +349,7 @@ def main():
         print("新規のLONG/SHORTシグナルがないため、通知はスキップしました。")
 
     if dip_signals:
-        send_discord_notification(build_dip_message(dip_signals))
+        send_awakening_notification(dip_signals)
     else:
         print("新規の押し目シグナルはありません。")
 
