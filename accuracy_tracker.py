@@ -54,7 +54,7 @@ def get_current_price(symbol: str) -> float | None:
 
 def check_outcomes():
     # 1時間後チェック(50分〜90分経過したものを対象)
-    pending_1h = db_utils.get_pending_outcome_signals(min_age_hours=90 / 60, max_age_hours=50 / 60, outcome_field="outcome_1h")
+    pending_1h = db_utils.get_pending_outcome_signals(min_age_hours=50 / 60, max_age_hours=90 / 60, outcome_field="outcome_1h")
     for row in pending_1h:
         price_now = get_current_price(row["asset"])
         if price_now is not None:
@@ -62,7 +62,7 @@ def check_outcomes():
             print(f"[1h検証] {row['asset']} {row['direction']} -> 記録済み")
 
     # 24時間後チェック(22時間〜26時間経過したものを対象)
-    pending_24h = db_utils.get_pending_outcome_signals(min_age_hours=26, max_age_hours=22, outcome_field="outcome_24h")
+    pending_24h = db_utils.get_pending_outcome_signals(min_age_hours=22, max_age_hours=26, outcome_field="outcome_24h")
     for row in pending_24h:
         price_now = get_current_price(row["asset"])
         if price_now is not None:

@@ -94,7 +94,7 @@ def was_recently_notified(source: str, asset: str, direction: str, cooldown_minu
 
 def get_recent_signals(hours: int, sources: list[str] | None = None) -> list[sqlite3.Row]:
     conn = get_conn()
-    query = "SELECT * FROM signals WHERE timestamp >= datetime('now', ?)"
+    query = "SELECT * FROM signals WHERE datetime(timestamp) >= datetime('now', ?)"
     params: list = [f"-{hours} hours"]
     if sources:
         placeholders = ",".join("?" for _ in sources)
@@ -113,8 +113,8 @@ def get_pending_outcome_signals(min_age_hours: float, max_age_hours: float, outc
         SELECT * FROM signals
         WHERE {outcome_field} IS NULL
         AND price_at_signal IS NOT NULL
-        AND timestamp <= datetime('now', ?)
-        AND timestamp >= datetime('now', ?)
+        AND datetime(timestamp) <= datetime('now', ?)
+        AND datetime(timestamp) >= datetime('now', ?)
     """
     rows = conn.execute(query, [f"-{min_age_hours} hours", f"-{max_age_hours} hours"]).fetchall()
     conn.close()
@@ -148,7 +148,7 @@ def get_hit_rate_summary(hours: int = 24 * 30) -> list[dict]:
                SUM(CASE WHEN outcome_24h = 'correct' THEN 1 ELSE 0 END) as correct_count
         FROM signals
         WHERE outcome_24h IS NOT NULL
-        AND timestamp >= datetime('now', '-{hours} hours')
+        AND datetime(timestamp) >= datetime('now', '-{hours} hours')
         GROUP BY source, asset
     """).fetchall()
     conn.close()
