@@ -42,6 +42,16 @@
     background: #1a1d24; border-left: 3px solid #f0c419; border-radius: 4px;
     padding: 10px 14px; font-size: 0.85rem; color: #d8d8d8;
   }
+  .flow-link {
+    display: flex; align-items: center; gap: 12px;
+    background: #1a1d24; border: 1px solid #2a2d34; border-radius: 10px;
+    padding: 14px 16px; margin-bottom: 28px;
+    text-decoration: none; color: #e6e6e6;
+  }
+  .flow-link .icon { font-size: 1.4rem; flex: none; }
+  .flow-link .title { font-weight: 700; font-size: 0.95rem; }
+  .flow-link .desc { color: #8a8f98; font-size: 0.8rem; margin-top: 2px; }
+  .flow-link .arrow { margin-left: auto; color: #4f8cff; flex: none; }
   .disclaimer {
     color: #8a8f98; font-size: 0.75rem; margin-top: 36px; border-top: 1px solid #2a2d34; padding-top: 14px;
   }
@@ -52,6 +62,15 @@
   <a class="back-link" href="./">← ダッシュボードに戻る</a>
   <h1>🪙 このアプリについて</h1>
   <div class="subtitle">シグナル通知・記録・分析支援システムの仕組み</div>
+
+  <a class="flow-link" href="https://claude.ai/code/artifact/e84a50d7-8657-4c4e-a44c-a9517de45a3b" target="_blank" rel="noopener">
+    <span class="icon">🔄</span>
+    <span>
+      <span class="title">シグナル運用ループ図</span><br>
+      <span class="desc">検知→購入→監視→売却→検証のループと、買い・売り判断の具体例を1枚で確認</span>
+    </span>
+    <span class="arrow">→</span>
+  </a>
 
   <section>
     <h2>これは何のツールか</h2>
