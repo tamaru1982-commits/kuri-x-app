@@ -143,13 +143,13 @@ def render_recent_signals(rows) -> str:
         basis_parts = [p for p in (price_str, compact_basis(full_message)) if p]
         basis = html.escape(" · ".join(basis_parts))
         title_attr = f" title='{html.escape(' '.join(full_message.split()))}'" if full_message else ""
+        basis_span = f"<span class='basis'> · {basis}</span>" if basis else ""
         items.append(
             f"<tr data-asset='{html.escape(r['asset'])}'>"
             f"<td>{to_short_time(r['timestamp'])}</td>"
             f"<td>{source_label(r['source'])}</td>"
             f"<td>{asset_span(r['asset'])}</td>"
-            f"<td{title_attr}>{signal_emoji(r['direction'])} {r['direction']}"
-            f"{f'<span class=\"basis\"> · {basis}</span>' if basis else ''}</td>"
+            f"<td{title_attr}>{signal_emoji(r['direction'])} {r['direction']}{basis_span}</td>"
             f"</tr>"
         )
     return (
