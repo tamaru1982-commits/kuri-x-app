@@ -38,8 +38,9 @@ SOURCE_NAME = "macro_pattern"
 
 
 def determine_current_regime() -> tuple[str, str] | None:
-    """直近のNFPサプライズ方向 × 直近1ヶ月のリスクセンチメントから現在の環境を判定する。"""
-    payems = mpa.fetch_payems_monthly()
+    """直近のNFPサプライズ方向 × 直近1ヶ月のリスクセンチメントから現在の環境を判定する。
+    macro_pattern_analysis.classify()と同じロジック・符号付けを使う。"""
+    payems = mpa.fetch_fred_monthly(mpa.NFP_SERIES_ID)
     if len(payems) < 4:
         return None
     changes = payems.diff().dropna()
@@ -58,10 +59,27 @@ def determine_current_regime() -> tuple[str, str] | None:
     gold_ret = latest_monthly_return(mpa.TICKERS["gold"])
     dollar_ret = latest_monthly_return(mpa.TICKERS["dollar"])
     nvda_ret = latest_monthly_return(mpa.TICKERS["nvda"])
-    if gold_ret is None or dollar_ret is None or nvda_ret is None:
+    sp500_ret = latest_monthly_return(mpa.TICKERS["sp500"])
+    vix_ret = latest_monthly_return(mpa.TICKERS["vix"])
+    oil_ret = latest_monthly_return(mpa.TICKERS["oil"])
+    if None in (gold_ret, dollar_ret, nvda_ret, sp500_ret, vix_ret, oil_ret):
         return None
 
-    risk_votes = (1 if nvda_ret > 0 else -1) + (1 if gold_ret < 0 else -1) + (1 if dollar_ret < 0 else -1)
+    fedfunds = mpa.fetch_fred_monthly(mpa.FEDFUNDS_SERIES_ID)
+    fedfunds_change = fedfunds.diff().dropna().iloc[-1] if len(fedfunds.diff().dropna()) >= 1 else None
+
+    risk_votes = 0
+    risk_votes += 1 if nvda_ret > 0 else -1
+    risk_votes += 1 if sp500_ret > 0 else -1
+    risk_votes += 1 if gold_ret < 0 else -1
+    risk_votes += 1 if dollar_ret < 0 else -1
+    risk_votes += 1 if vix_ret < 0 else -1
+    risk_votes += 1 if oil_ret < 0 else -1
+    if fedfunds_change is not None:
+        if fedfunds_change > 0:
+            risk_votes -= 1
+        elif fedfunds_change < 0:
+            risk_votes += 1
     factor_b = "リスクオン" if risk_votes >= 0 else "リスクオフ"
 
     return factor_a, factor_b
@@ -76,7 +94,7 @@ def send_discord_notification(pattern_key: str, stats: dict, signal: str, data_r
         f"過去の傾向(n={stats['sample_count']}ヶ月, {data_range}): "
         f"翌月平均{stats['avg_move_pct']:+.2f}% / 上昇確率{stats['up_ratio_pct']}%\n"
         f"{short_note}\n"
-        f"_※雇用統計・金・ドル・AI株(NVDA)の月次パターンに基づく参考情報です。"
+        f"_※雇用統計・金・ドル・AI株(NVDA)・S&P500・VIX・原油・FF金利の月次パターンに基づく参考情報です。"
         f"サンプル数が少なく統計的根拠は他のシグナルより弱いため、単独での売買判断は避けてください。"
         f"投資助言ではありません。_"
     )
