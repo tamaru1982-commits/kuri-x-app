@@ -181,6 +181,7 @@
         <tr><td>conf(複数ソース一致確認)</td><td>毎時10分・40分</td><td><code>confluence_checker.yml</code></td></tr>
         <tr><td>的中率検証</td><td>毎時5分(結果検証)、月曜に週次サマリー</td><td><code>accuracy_tracker.yml</code></td></tr>
         <tr><td>目標到達判定</td><td>毎時15分</td><td><code>target_tracker.yml</code></td></tr>
+        <tr><td>ポジション監視</td><td>毎時5分・35分</td><td><code>position_monitor.yml</code></td></tr>
         <tr><td>macro(マクロ相関判定)</td><td>毎月8日 23:00頃</td><td><code>macro_signal.yml</code></td></tr>
         <tr><td>経済指標リマインド</td><td>毎日22:00頃</td><td><code>economic_calendar_reminder.yml</code></td></tr>
         <tr><td>資産相関レポート</td><td>毎週月曜7:00頃</td><td><code>correlation_report.yml</code></td></tr>
@@ -265,6 +266,19 @@
       SHORTシグナルで実際に売却した場合は、そのLONGポジションの決済として記録してください。
       記録後は<code>git push</code>してリポジトリに反映しないと、このダッシュボードには表示されません。
     </p>
+    <p>
+      記録した建値・損切りラインは<code>position_monitor.py</code>が30分おきに監視し、
+      以下のいずれかを検知するとDiscordに通知します(記録した内容を「見張り」に活かす仕組みです):
+    </p>
+    <ul>
+      <li>利確目標(既定+5%)に到達した</li>
+      <li>損切りライン(記録時に指定した<code>stop_loss</code>)を割り込んだ</li>
+      <li>保有銘柄でテクニカル(tech)の新しいSHORTサインが出た</li>
+    </ul>
+    <div class="note">
+      同一ポジション・同一種類の通知は既定12時間のクールダウンで再通知を抑制しています。
+      価格変動の方向・比率のみに基づく単純な判定です。投資助言ではありません。
+    </div>
   </section>
 
   <div class="disclaimer">
