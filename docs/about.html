@@ -180,6 +180,7 @@
         <tr><td>whale(クジラ監視)</td><td>7,8,12,13,15,17,19-24,1,2時台のみ15分おき</td><td><code>whale_signal.yml</code></td></tr>
         <tr><td>conf(複数ソース一致確認)</td><td>毎時10分・40分</td><td><code>confluence_checker.yml</code></td></tr>
         <tr><td>的中率検証</td><td>毎時5分(結果検証)、月曜に週次サマリー</td><td><code>accuracy_tracker.yml</code></td></tr>
+        <tr><td>目標到達判定</td><td>毎時15分</td><td><code>target_tracker.yml</code></td></tr>
         <tr><td>macro(マクロ相関判定)</td><td>毎月8日 23:00頃</td><td><code>macro_signal.yml</code></td></tr>
         <tr><td>経済指標リマインド</td><td>毎日22:00頃</td><td><code>economic_calendar_reminder.yml</code></td></tr>
         <tr><td>資産相関レポート</td><td>毎週月曜7:00頃</td><td><code>correlation_report.yml</code></td></tr>
@@ -221,6 +222,28 @@
     <div class="note">
       価格変動の方向のみで判定した簡易的な指標です。値幅・手数料・スリッページは考慮していません。
       サンプル数が少ないうちは参考程度に見てください。
+    </div>
+  </section>
+
+  <section>
+    <h2>目標到達率について</h2>
+    <p>
+      的中率(上記)は「1時間後/24時間後という1時点でのプラス/マイナス」しか見ていないため、
+      「+5%になったら売る、1〜3日以内」のような<strong>目標達成型の短期トレード</strong>を
+      検証するには不向きです。そこで<code>target_tracker.py</code>が別途、シグナル発生後の
+      価格推移全体を追跡し、
+    </p>
+    <ul>
+      <li>判定期間(既定72時間=3日)以内に目標%(既定+5%)へ到達したか</li>
+      <li>到達した場合、何時間で到達したか</li>
+      <li>到達する<strong>前</strong>に、最大でどれだけ逆行(含み損)したか</li>
+      <li>到達しなかった場合、判定期間中の最大逆行はどれだけだったか</li>
+    </ul>
+    <p>を記録しています。「到達前逆行」が損切りラインの目安(既定3%)を上回っていれば、
+      実際には目標に届く前に損切りしていた可能性がある、といった判断に使えます。</p>
+    <div class="note">
+      LONGは価格上昇率、SHORTは価格下落率を「目標方向への変化率」として同じ尺度で扱っています。
+      これも方向のみの簡易判定であり、実際の約定・手数料は考慮していません。投資助言ではありません。
     </div>
   </section>
 

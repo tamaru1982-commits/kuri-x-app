@@ -38,7 +38,7 @@
 </head>
 <body>
   <h1>🪙 シグナル状況ダッシュボード</h1>
-  <div class="updated">最終更新: 08-28 12:58 ・ <a href="about.html" style="color:#4f8cff">このアプリについて</a></div>
+  <div class="updated">最終更新: 08-28 13:35 ・ <a href="about.html" style="color:#4f8cff">このアプリについて</a></div>
 
   <div class='filter-bar'><label class='chip'><input type='checkbox' class='asset-toggle' value='AAVE' checked><span class='asset' style='color:#ff5c5c'>AAVE</span></label><label class='chip'><input type='checkbox' class='asset-toggle' value='BTC' checked><span class='asset' style='color:#f7931a'>BTC</span></label><label class='chip'><input type='checkbox' class='asset-toggle' value='DOGE' checked><span class='asset' style='color:#f0c419'>DOGE</span></label><label class='chip'><input type='checkbox' class='asset-toggle' value='EDGE' checked><span class='asset' style='color:#2dd4bf'>EDGE</span></label><label class='chip'><input type='checkbox' class='asset-toggle' value='ETH' checked><span class='asset' style='color:#9fa8ff'>ETH</span></label><label class='chip'><input type='checkbox' class='asset-toggle' value='HYPE' checked><span class='asset' style='color:#ff6ec7'>HYPE</span></label><label class='chip'><input type='checkbox' class='asset-toggle' value='SOL' checked><span class='asset' style='color:#4df3c4'>SOL</span></label><label class='chip'><input type='checkbox' class='asset-toggle' value='TRIA' checked><span class='asset' style='color:#c084fc'>TRIA</span></label><label class='chip'><input type='checkbox' class='asset-toggle' value='XRP' checked><span class='asset' style='color:#5ac8fa'>XRP</span></label><label class='chip'><input type='checkbox' class='asset-toggle' value='市場全体' checked><span class='asset' style='color:#c9c9c9'>市場全体</span></label></div>
 
@@ -54,7 +54,12 @@
 
   <section>
     <h2>的中率(直近30日)</h2>
-    <p class='muted'>まだ的中率を計算できるデータがありません。</p>
+    <table class='filterable'><thead><tr><th>ソース</th><th>資産</th><th>的中率</th><th>件数</th></tr></thead><tbody><tr data-asset='BTC'><td>tech</td><td><span class='asset' style='color:#f7931a'>BTC</span></td><td>100.0%</td><td>1/1件</td></tr><tr data-asset='ETH'><td>tech</td><td><span class='asset' style='color:#9fa8ff'>ETH</span></td><td>0.0%</td><td>0/1件</td></tr><tr data-asset='XRP'><td>tech</td><td><span class='asset' style='color:#5ac8fa'>XRP</span></td><td>100.0%</td><td>1/1件</td></tr></tbody></table>
+  </section>
+
+  <section>
+    <h2>目標到達率(直近30日)</h2>
+    <table class='filterable'><thead><tr><th>ソース</th><th>資産</th><th>方向</th><th>到達率</th><th>平均到達時間</th><th>到達前逆行</th><th>未到達時逆行</th></tr></thead><tbody><tr data-asset='SOL'><td>tech</td><td><span class='asset' style='color:#4df3c4'>SOL</span></td><td>🟢 LONG</td><td>100.0% (1/1)</td><td>15.6h</td><td>0.85%</td><td>-</td></tr></tbody></table><p class='muted' style='font-size:0.75rem;'>目標+5.0% / 判定期間3.0日 での集計です。</p>
   </section>
 
   <section>

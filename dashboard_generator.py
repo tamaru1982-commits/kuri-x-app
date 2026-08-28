@@ -175,6 +175,32 @@ def render_hit_rate(summary) -> str:
     )
 
 
+def render_target_summary(summary) -> str:
+    if not summary:
+        return "<p class='muted'>まだ目標到達を判定できるデータがありません。</p>"
+
+    items = []
+    for row in summary:
+        hit_hours = f"{row['avg_hit_hours']}h" if row["avg_hit_hours"] is not None else "-"
+        adv_hit = f"{row['avg_adverse_on_hit']}%" if row["avg_adverse_on_hit"] is not None else "-"
+        adv_miss = f"{row['avg_adverse_on_miss']}%" if row["avg_adverse_on_miss"] is not None else "-"
+        items.append(
+            f"<tr data-asset='{html.escape(row['asset'])}'>"
+            f"<td>{source_label(row['source'])}</td><td>{asset_span(row['asset'])}</td>"
+            f"<td>{signal_emoji(row['direction'])} {row['direction']}</td>"
+            f"<td>{row['hit_rate_pct']}% ({row['hit_count']}/{row['total']})</td>"
+            f"<td>{hit_hours}</td><td>{adv_hit}</td><td>{adv_miss}</td></tr>"
+        )
+    target_pct = summary[0]["target_pct"]
+    window_days = round(summary[0]["target_window_hours"] / 24, 1) if summary[0]["target_window_hours"] else "-"
+    note = f"<p class='muted' style='font-size:0.75rem;'>目標+{target_pct}% / 判定期間{window_days}日 での集計です。</p>"
+    return (
+        "<table class='filterable'><thead><tr><th>ソース</th><th>資産</th><th>方向</th>"
+        "<th>到達率</th><th>平均到達時間</th><th>到達前逆行</th><th>未到達時逆行</th></tr></thead>"
+        "<tbody>" + "".join(items) + "</tbody></table>" + note
+    )
+
+
 def render_open_positions(rows) -> str:
     if not rows:
         return "<p class='muted'>保有中のポジションはありません。</p>"
@@ -253,6 +279,7 @@ FILTER_SCRIPT = """
 def build_html() -> str:
     recent_signals = db_utils.get_recent_signals(hours=72)
     hit_rate = db_utils.get_hit_rate_summary(hours=24 * 30)
+    target_summary = db_utils.get_target_hit_summary(hours=24 * 30)
     open_positions = db_utils.get_open_positions()
     journal_summary = db_utils.get_journal_summary()
 
@@ -316,6 +343,11 @@ def build_html() -> str:
   <section>
     <h2>的中率(直近30日)</h2>
     {render_hit_rate(hit_rate)}
+  </section>
+
+  <section>
+    <h2>目標到達率(直近30日)</h2>
+    {render_target_summary(target_summary)}
   </section>
 
   <section>

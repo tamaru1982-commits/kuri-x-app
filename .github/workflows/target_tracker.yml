@@ -1,0 +1,43 @@
+# 毎時15分に実行: シグナルが目標%(既定+5%)に1〜3日以内(既定72時間)で到達したかを
+# 価格推移全体から判定し、到達までの時間・到達前の最大逆行幅を記録する。
+# accuracy_tracker.yml(1h/24h時点のスナップショット判定)とは別の、目標達成型の
+# 短期トレード戦略を検証するための仕組み。
+
+name: Target Tracker
+
+on:
+  schedule:
+    - cron: "15 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  check-targets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 依存関係インストール
+        run: pip install requests pandas
+
+      - name: 目標到達判定
+        # TARGET_PCT / TARGET_WINDOW_HOURS は任意設定。Secretsが未設定だと空文字列が渡り
+        # スクリプト側のデフォルト値処理が壊れるため、変更したい場合のみ値を設定して追加してください。
+        # env:
+        #   TARGET_PCT: ${{ secrets.TARGET_PCT }}
+        #   TARGET_WINDOW_HOURS: ${{ secrets.TARGET_WINDOW_HOURS }}
+        run: python target_tracker.py
+
+      - name: DBをコミット
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add trading_system.db
+          git diff --staged --quiet || git commit -m "update target tracking"
+          git push

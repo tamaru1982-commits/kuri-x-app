@@ -55,6 +55,20 @@ def init_db():
             status TEXT DEFAULT 'open'      -- 'open' | 'closed'
         )
     """)
+
+    # target_tracker.py用: 目標%到達までの経路追跡カラム(後から追加したため既存DBにはALTERで補う)
+    existing_columns = {row["name"] for row in conn.execute("PRAGMA table_info(signals)").fetchall()}
+    target_columns = {
+        "target_pct": "REAL",
+        "target_window_hours": "REAL",
+        "target_hit": "TEXT",           # 'yes' | 'no' | NULL(未確定)
+        "target_hit_hours": "REAL",     # 到達までの時間(未到達ならNULL)
+        "max_adverse_pct": "REAL",      # 到達前(または判定終了まで)の最大逆行幅(%)
+    }
+    for col, col_type in target_columns.items():
+        if col not in existing_columns:
+            conn.execute(f"ALTER TABLE signals ADD COLUMN {col} {col_type}")
+
     conn.commit()
     conn.close()
 
@@ -159,6 +173,40 @@ def get_hit_rate_summary(hours: int = 24 * 30) -> list[dict]:
         result.append({
             "source": r["source"], "asset": r["asset"],
             "total": r["total"], "correct": r["correct_count"], "hit_rate_pct": round(rate, 1),
+        })
+    return result
+
+
+def get_target_hit_summary(hours: int = 24 * 30) -> list[dict]:
+    """target_tracker.pyが記録した「目標%到達」の集計。到達率・平均到達時間・
+    到達/未到達それぞれの平均最大逆行幅(含み損)をsource・asset・方向別に返す。"""
+    conn = get_conn()
+    rows = conn.execute(f"""
+        SELECT source, asset, direction,
+               COUNT(*) as total,
+               SUM(CASE WHEN target_hit = 'yes' THEN 1 ELSE 0 END) as hit_count,
+               AVG(CASE WHEN target_hit = 'yes' THEN target_hit_hours END) as avg_hit_hours,
+               AVG(CASE WHEN target_hit = 'yes' THEN max_adverse_pct END) as avg_adverse_on_hit,
+               AVG(CASE WHEN target_hit = 'no' THEN max_adverse_pct END) as avg_adverse_on_miss,
+               MAX(target_pct) as target_pct,
+               MAX(target_window_hours) as target_window_hours
+        FROM signals
+        WHERE target_hit IS NOT NULL
+        AND datetime(timestamp) >= datetime('now', '-{hours} hours')
+        GROUP BY source, asset, direction
+    """).fetchall()
+    conn.close()
+
+    result = []
+    for r in rows:
+        rate = (r["hit_count"] / r["total"] * 100) if r["total"] else 0
+        result.append({
+            "source": r["source"], "asset": r["asset"], "direction": r["direction"],
+            "total": r["total"], "hit_count": r["hit_count"], "hit_rate_pct": round(rate, 1),
+            "avg_hit_hours": round(r["avg_hit_hours"], 1) if r["avg_hit_hours"] is not None else None,
+            "avg_adverse_on_hit": round(r["avg_adverse_on_hit"], 2) if r["avg_adverse_on_hit"] is not None else None,
+            "avg_adverse_on_miss": round(r["avg_adverse_on_miss"], 2) if r["avg_adverse_on_miss"] is not None else None,
+            "target_pct": r["target_pct"], "target_window_hours": r["target_window_hours"],
         })
     return result
 
