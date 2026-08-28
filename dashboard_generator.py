@@ -144,12 +144,14 @@ def render_recent_signals(rows) -> str:
         basis = html.escape(" · ".join(basis_parts))
         title_attr = f" title='{html.escape(' '.join(full_message.split()))}'" if full_message else ""
         basis_span = f"<span class='basis'> · {basis}</span>" if basis else ""
+        row_class = " class='awakening'" if r["source"] == "crypto_dip" else ""
+        label = "⚡覚醒" if r["source"] == "crypto_dip" else f"{signal_emoji(r['direction'])} {r['direction']}"
         items.append(
-            f"<tr data-asset='{html.escape(r['asset'])}'>"
+            f"<tr data-asset='{html.escape(r['asset'])}'{row_class}>"
             f"<td>{to_short_time(r['timestamp'])}</td>"
             f"<td>{source_label(r['source'])}</td>"
             f"<td>{asset_span(r['asset'])}</td>"
-            f"<td{title_attr}>{signal_emoji(r['direction'])} {r['direction']}{basis_span}</td>"
+            f"<td{title_attr}>{label}{basis_span}</td>"
             f"</tr>"
         )
     return (
@@ -322,6 +324,12 @@ def build_html() -> str:
     font-size: 0.78rem; cursor: pointer; user-select: none;
   }}
   .chip input {{ accent-color: #4f8cff; }}
+  @keyframes patrol-lamp {{
+    0%, 100% {{ background-color: rgba(255, 59, 48, 0.10); box-shadow: inset 3px 0 0 0 #ff3b30; }}
+    50% {{ background-color: rgba(255, 157, 0, 0.22); box-shadow: inset 3px 0 0 0 #ff9d00; }}
+  }}
+  tr.awakening {{ animation: patrol-lamp 1.2s ease-in-out infinite; }}
+  tr.awakening td:nth-child(4) {{ font-weight: 700; color: #ff6b57; }}
 </style>
 </head>
 <body>
