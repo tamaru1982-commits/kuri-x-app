@@ -1,11 +1,12 @@
-# 30分おき(crypto_signal.ymlの5分後)に実行: journalに記録した保有中ポジションを監視し、
+# 15分おき(paper_trader.ymlの5分後)に実行: journalに記録した保有中ポジションを監視し、
 # 利確目標到達・損切りライン到達・テクニカル売りサイン発生のいずれかがあれば通知する。
+# ペーパートレード(is_paper=1)はここで検知次第、人の判断を待たず自動決済される。
 
 name: Position Monitor
 
 on:
   schedule:
-    - cron: "5,35 * * * *"
+    - cron: "5,20,35,50 * * * *"
   workflow_dispatch: {}
 
 permissions:

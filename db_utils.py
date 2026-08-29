@@ -57,7 +57,7 @@ def init_db():
     """)
 
     # target_tracker.py用: 目標%到達までの経路追跡カラム(後から追加したため既存DBにはALTERで補う)
-    existing_columns = {row["name"] for row in conn.execute("PRAGMA table_info(signals)").fetchall()}
+    existing_signal_columns = {row["name"] for row in conn.execute("PRAGMA table_info(signals)").fetchall()}
     target_columns = {
         "target_pct": "REAL",
         "target_window_hours": "REAL",
@@ -66,8 +66,18 @@ def init_db():
         "max_adverse_pct": "REAL",      # 到達前(または判定終了まで)の最大逆行幅(%)
     }
     for col, col_type in target_columns.items():
-        if col not in existing_columns:
+        if col not in existing_signal_columns:
             conn.execute(f"ALTER TABLE signals ADD COLUMN {col} {col_type}")
+
+    # paper_trader.py用: 実トレードと自動シミュレーション(ペーパートレード)を区別するカラム
+    existing_journal_columns = {row["name"] for row in conn.execute("PRAGMA table_info(journal)").fetchall()}
+    journal_columns = {
+        "is_paper": "INTEGER DEFAULT 0",  # 1ならpaper_trader.pyが自動記録した仮想トレード
+        "source": "TEXT",                 # ペーパートレードの場合、発生元シグナルソース
+    }
+    for col, col_type in journal_columns.items():
+        if col not in existing_journal_columns:
+            conn.execute(f"ALTER TABLE journal ADD COLUMN {col} {col_type}")
 
     conn.commit()
     conn.close()
@@ -214,12 +224,14 @@ def get_target_hit_summary(hours: int = 24 * 30) -> list[dict]:
 # ============ journal テーブル ============
 
 def add_journal_entry(asset: str, direction: str, entry_price: float, size: float,
-                       stop_loss: float | None, note: str) -> int:
+                       stop_loss: float | None, note: str,
+                       is_paper: bool = False, source: str | None = None) -> int:
     conn = get_conn()
     cur = conn.execute(
-        "INSERT INTO journal (timestamp, asset, direction, entry_price, size, stop_loss, note) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (datetime.utcnow().isoformat(), asset, direction, entry_price, size, stop_loss, note),
+        "INSERT INTO journal (timestamp, asset, direction, entry_price, size, stop_loss, note, is_paper, source) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (datetime.utcnow().isoformat(), asset, direction, entry_price, size, stop_loss, note,
+         1 if is_paper else 0, source),
     )
     conn.commit()
     entry_id = cur.lastrowid
@@ -248,9 +260,14 @@ def close_journal_entry(entry_id: int, exit_price: float):
     return pnl
 
 
-def get_journal_summary() -> dict:
+def get_journal_summary(is_paper: bool | None = None) -> dict:
     conn = get_conn()
-    rows = conn.execute("SELECT * FROM journal WHERE status = 'closed'").fetchall()
+    if is_paper is None:
+        rows = conn.execute("SELECT * FROM journal WHERE status = 'closed'").fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM journal WHERE status = 'closed' AND is_paper = ?", (1 if is_paper else 0,)
+        ).fetchall()
     conn.close()
 
     if not rows:
@@ -271,11 +288,44 @@ def get_journal_summary() -> dict:
     }
 
 
-def get_open_positions() -> list[sqlite3.Row]:
+def get_open_positions(is_paper: bool | None = None) -> list[sqlite3.Row]:
     conn = get_conn()
-    rows = conn.execute("SELECT * FROM journal WHERE status = 'open' ORDER BY timestamp DESC").fetchall()
+    if is_paper is None:
+        rows = conn.execute("SELECT * FROM journal WHERE status = 'open' ORDER BY timestamp DESC").fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM journal WHERE status = 'open' AND is_paper = ? ORDER BY timestamp DESC",
+            (1 if is_paper else 0,),
+        ).fetchall()
     conn.close()
     return rows
+
+
+def get_paper_performance_by_source(hours: int = 24 * 30) -> list[dict]:
+    """ペーパートレードの、発生元シグナルソース別の成績(決済済みのみ)。"""
+    conn = get_conn()
+    rows = conn.execute(f"""
+        SELECT source, asset,
+               COUNT(*) as total,
+               SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as win_count,
+               SUM(pnl) as total_pnl,
+               AVG(pnl) as avg_pnl
+        FROM journal
+        WHERE is_paper = 1 AND status = 'closed'
+        AND datetime(exit_timestamp) >= datetime('now', '-{hours} hours')
+        GROUP BY source, asset
+    """).fetchall()
+    conn.close()
+
+    result = []
+    for r in rows:
+        rate = (r["win_count"] / r["total"] * 100) if r["total"] else 0
+        result.append({
+            "source": r["source"], "asset": r["asset"], "total": r["total"],
+            "win_count": r["win_count"], "win_rate_pct": round(rate, 1),
+            "total_pnl": round(r["total_pnl"], 2), "avg_pnl": round(r["avg_pnl"], 2),
+        })
+    return result
 
 
 if __name__ == "__main__":

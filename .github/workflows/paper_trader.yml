@@ -1,0 +1,43 @@
+# 15分おきに実行: 各シグナルソース(tech/dip/whale/confluence/macro)からLONGが
+# 発生するたびに、実際には買わず仮想ポジション(ペーパートレード)としてjournalに
+# 自動記録する。決済はposition_monitor.ymlが既存の監視ロジックで自動的に行う。
+#
+# 実弾を使わずに「毎回シグナル通りに買っていたら」を継続検証するための仕組み。
+
+name: Paper Trader
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  open-paper-trades:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 依存関係インストール
+        run: pip install requests
+
+      - name: ペーパートレード記録
+        # PAPER_NOTIONAL_USD は任意設定。Secretsが未設定だと空文字列が渡り
+        # スクリプト側のデフォルト値処理が壊れるため、変更したい場合のみ値を設定して追加してください。
+        # env:
+        #   PAPER_NOTIONAL_USD: ${{ secrets.PAPER_NOTIONAL_USD }}
+        run: python paper_trader.py
+
+      - name: DB・状態ファイルをコミット
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add trading_system.db paper_trader_state.json
+          git diff --staged --quiet || git commit -m "update paper trader state"
+          git push

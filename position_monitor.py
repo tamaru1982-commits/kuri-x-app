@@ -1,21 +1,27 @@
 """
 position_monitor.py
 
-journal(journal_add.pyで記録した保有中ポジション、status='open')を監視し、
-以下のいずれかを検知したらDiscordに通知する。
+journal(status='open')に記録されているポジションを監視し、以下のいずれかを
+検知したら通知する。
 
 - 損切りライン(記録時に指定したstop_loss)を割り込んだ
 - 利確目標(既定+5%)に到達した
 - 保有銘柄でcrypto_technicalの新しいSHORT(売り)サインが出た
 
-記録した建値・損切りラインを「記録するだけ」で終わらせず、実際の売り時判断に
-活かすための機能。crypto_signal_notifier.py実行後を追いかける形で、
-30分おきの実行を想定。
+journal_add.pyで記録した**実ポジション**の場合は、Discordでアラートするのみ
+(売るかどうかは人が判断する)。
+
+paper_trader.pyが自動記録した**ペーパートレード**(is_paper=1)の場合は、
+人の判断を待たず該当条件でその場で自動決済する。これにより、各シグナル
+ソースが実際に儲かる傾向にあるかを実弾なしで継続検証できる。
+
+crypto_signal_notifier.py実行後を追いかける形で、30分おきの実行を想定。
 
 前提:
 - journalはLONG(買い)エントリーの記録を想定(SHORTは現物運用のため「売却/見送り」
   の意味で使っており、実際にSHORTポジションを記録することは基本的にない)
-- 同一ポジション・同一種類の通知は既定12時間のクールダウンで再通知を抑制
+- 実ポジションの同一種類の通知は既定12時間のクールダウンで再通知を抑制
+  (ペーパートレードは決済後status='closed'になるため、再チェック対象から自然に外れる)
 
 注意:
 - 価格変動の方向・比率のみに基づく単純な判定です。投資助言ではありません。
@@ -24,6 +30,7 @@ journal(journal_add.pyで記録した保有中ポジション、status='open')�
 import os
 import sys
 import json
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -66,7 +73,14 @@ def get_current_price(symbol: str) -> float | None:
         return None
     url = f"{COINGECKO_BASE}/simple/price"
     params = {"ids": coin_id, "vs_currencies": "usd"}
+
     resp = requests.get(url, params=params, timeout=15)
+    if resp.status_code == 429:
+        for _ in range(2):
+            time.sleep(30)
+            resp = requests.get(url, params=params, timeout=15)
+            if resp.status_code != 429:
+                break
     resp.raise_for_status()
     return resp.json().get(coin_id, {}).get("usd")
 
@@ -116,6 +130,30 @@ def build_alert_message(row, current_price: float, pnl_pct: float, alert_types: 
     return "\n".join(lines)
 
 
+def build_paper_close_message(row, current_price: float, pnl_pct: float, alert_types: list[str]) -> str:
+    """ペーパートレード(is_paper=1)は人の判断を待たず自動決済するため、
+    「ご検討ください」ではなく「決済しました」の報告として通知する。"""
+    lines = [f"**📝 ペーパートレード決済: {row['asset']}**", ""]
+    lines.append(f"建値 ${row['entry_price']:,.4f} → 決済 ${current_price:,.4f}({pnl_pct:+.2f}%)")
+    if row["source"]:
+        lines.append(f"シグナル元: {row['source']}")
+    lines.append("")
+
+    if "take_profit" in alert_types:
+        lines.append(f"🟢 利確目安(+{TARGET_PROFIT_PCT:.1f}%)到達で決済")
+    if "stop_loss" in alert_types:
+        lines.append("🔴 損切りライン到達で決済")
+    if "tech_short" in alert_types:
+        lines.append("⚠️ テクニカル売りサイン発生で決済")
+
+    lines.append("")
+    lines.append(
+        f"_※実際の売買ではない自動シミュレーションです(journal id={row['id']})。"
+        f"シグナルソース別の実力を検証するための記録です。投資助言ではありません。_"
+    )
+    return "\n".join(lines)
+
+
 def send_discord_notification(message: str):
     if not DISCORD_WEBHOOK_URL:
         print("[警告] DISCORD_WEBHOOK_URL が設定されていないため、コンソールに出力のみ行います。")
@@ -138,14 +176,20 @@ def main():
         save_state(state)  # state_fileが未作成だとワークフロー側のgit addが失敗するため必ず保存する
         return 0
 
+    price_cache: dict[str, float | None] = {}
+
     for row in positions:
         asset = row["asset"]
-        try:
-            current_price = get_current_price(asset)
-        except Exception as e:
-            print(f"[エラー] {asset} の価格取得に失敗しました: {e}")
-            continue
 
+        if asset not in price_cache:
+            try:
+                price_cache[asset] = get_current_price(asset)
+            except Exception as e:
+                print(f"[エラー] {asset} の価格取得に失敗しました: {e}")
+                price_cache[asset] = None
+            time.sleep(2)  # 銘柄ごとに1回だけ取得し、CoinGeckoのレート制限を避ける
+
+        current_price = price_cache[asset]
         if current_price is None:
             print(f"[スキップ] {asset}: 価格取得不可(対応表未登録の可能性)")
             continue
@@ -175,10 +219,19 @@ def main():
         if alert_types:
             for alert_type in alert_types:
                 mark_alerted(state, row["id"], alert_type)
-            send_discord_notification(build_alert_message(row, current_price, pnl_pct, alert_types))
-            print(f"[通知] {asset} (id={row['id']}): {','.join(alert_types)} / 含み損益{pnl_pct:+.2f}%")
+
+            if row["is_paper"]:
+                # ペーパートレードは人の判断を待たず、条件を満たした時点で自動決済する
+                db_utils.close_journal_entry(row["id"], current_price)
+                send_discord_notification(build_paper_close_message(row, current_price, pnl_pct, alert_types))
+                print(f"[ペーパー決済] {asset} (id={row['id']}, source={row['source']}): "
+                      f"{','.join(alert_types)} / 損益{pnl_pct:+.2f}%")
+            else:
+                send_discord_notification(build_alert_message(row, current_price, pnl_pct, alert_types))
+                print(f"[通知] {asset} (id={row['id']}): {','.join(alert_types)} / 含み損益{pnl_pct:+.2f}%")
         else:
-            print(f"{asset} (id={row['id']}): 含み損益{pnl_pct:+.2f}% (通知条件なし)")
+            kind = "ペーパー" if row["is_paper"] else "実"
+            print(f"{asset} (id={row['id']}, {kind}): 含み損益{pnl_pct:+.2f}% (通知条件なし)")
 
     save_state(state)
     return 0

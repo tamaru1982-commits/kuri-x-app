@@ -240,6 +240,26 @@ def render_journal_summary(summary) -> str:
     )
 
 
+def render_paper_performance(rows) -> str:
+    if not rows:
+        return "<p class='muted'>まだ決済済みのペーパートレードがありません。</p>"
+
+    items = []
+    for r in rows:
+        items.append(
+            f"<tr data-asset='{html.escape(r['asset'])}'>"
+            f"<td>{source_label(r['source'])}</td><td>{asset_span(r['asset'])}</td>"
+            f"<td>{r['win_rate_pct']}% ({r['win_count']}/{r['total']})</td>"
+            f"<td>{r['total_pnl']:+.2f}</td><td>{r['avg_pnl']:+.2f}</td></tr>"
+        )
+    return (
+        "<table class='filterable'><thead><tr><th>ソース</th><th>資産</th>"
+        "<th>勝率</th><th>合計損益(想定$)</th><th>平均損益</th></tr></thead>"
+        "<tbody>" + "".join(items) + "</tbody></table>"
+        "<p class='muted' style='font-size:0.75rem;'>1トレードあたり想定$100分。実際の売買ではありません。</p>"
+    )
+
+
 FILTER_SCRIPT = """
 <script>
 (function () {
@@ -282,8 +302,9 @@ def build_html() -> str:
     recent_signals = db_utils.get_recent_signals(hours=72)
     hit_rate = db_utils.get_hit_rate_summary(hours=24 * 30)
     target_summary = db_utils.get_target_hit_summary(hours=24 * 30)
-    open_positions = db_utils.get_open_positions()
-    journal_summary = db_utils.get_journal_summary()
+    open_positions = db_utils.get_open_positions(is_paper=False)
+    journal_summary = db_utils.get_journal_summary(is_paper=False)
+    paper_performance = db_utils.get_paper_performance_by_source(hours=24 * 30)
 
     now_str = (datetime.utcnow() + JST).strftime("%m-%d %H:%M")
     asset_options = collect_assets(recent_signals, open_positions, hit_rate)
@@ -339,13 +360,18 @@ def build_html() -> str:
   {render_asset_filter(asset_options)}
 
   <section>
-    <h2>保有中ポジション</h2>
+    <h2>保有中ポジション(実トレードのみ)</h2>
     {render_open_positions(open_positions)}
   </section>
 
   <section>
-    <h2>トレード成績(決済済み)</h2>
+    <h2>トレード成績(決済済み・実トレードのみ)</h2>
     {render_journal_summary(journal_summary)}
+  </section>
+
+  <section>
+    <h2>ペーパートレード成績(ソース別・直近30日)</h2>
+    {render_paper_performance(paper_performance)}
   </section>
 
   <section>

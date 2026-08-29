@@ -201,7 +201,8 @@
         <tr><td>conf(複数ソース一致確認)</td><td>毎時10分・40分</td><td><code>confluence_checker.yml</code></td></tr>
         <tr><td>的中率検証</td><td>毎時5分(結果検証)、月曜に週次サマリー</td><td><code>accuracy_tracker.yml</code></td></tr>
         <tr><td>目標到達判定</td><td>毎時15分</td><td><code>target_tracker.yml</code></td></tr>
-        <tr><td>ポジション監視</td><td>毎時5分・35分</td><td><code>position_monitor.yml</code></td></tr>
+        <tr><td>ポジション監視</td><td>毎時5分・20分・35分・50分</td><td><code>position_monitor.yml</code></td></tr>
+        <tr><td>ペーパートレード記録</td><td>15分おき</td><td><code>paper_trader.yml</code></td></tr>
         <tr><td>macro(マクロ相関判定)</td><td>毎月8日 23:00頃</td><td><code>macro_signal.yml</code></td></tr>
         <tr><td>経済指標リマインド</td><td>毎日22:00頃</td><td><code>economic_calendar_reminder.yml</code></td></tr>
         <tr><td>資産相関レポート</td><td>毎週月曜7:00頃</td><td><code>correlation_report.yml</code></td></tr>
@@ -287,7 +288,7 @@
       記録後は<code>git push</code>してリポジトリに反映しないと、このダッシュボードには表示されません。
     </p>
     <p>
-      記録した建値・損切りラインは<code>position_monitor.py</code>が30分おきに監視し、
+      記録した建値・損切りラインは<code>position_monitor.py</code>が15分おきに監視し、
       以下のいずれかを検知するとDiscordに通知します(記録した内容を「見張り」に活かす仕組みです):
     </p>
     <ul>
@@ -298,6 +299,27 @@
     <div class="note">
       同一ポジション・同一種類の通知は既定12時間のクールダウンで再通知を抑制しています。
       価格変動の方向・比率のみに基づく単純な判定です。投資助言ではありません。
+    </div>
+  </section>
+
+  <section>
+    <h2>ペーパートレード(自動シミュレーション)</h2>
+    <p>
+      実運用を始める前のデータ収集期間でも、各シグナルソースが実際に儲かる傾向にあるのかを
+      検証できるよう、<code>paper_trader.py</code>がLONGシグナル発生のたびに<strong>実際には買わず</strong>
+      仮想ポジションを自動記録します(1トレードあたり想定$100分)。
+    </p>
+    <ul>
+      <li>対象ソース: tech / dip / whale / confluence / macro(全ソース)</li>
+      <li>建値は発生時の価格、損切りラインは既定3%で自動設定</li>
+      <li>決済は<code>position_monitor.py</code>が兼務: 利確+5%到達・損切りライン到達・
+        テクニカルSHORT発生のいずれかで、<strong>人の判断を待たず自動的に決済</strong></li>
+    </ul>
+    <div class="note">
+      実トレード(journal_add.pyで手動記録したもの)とはjournalの<code>is_paper</code>列で
+      区別され、ダッシュボードの集計にも混ざりません。実運用を始めた後もペーパートレードは
+      並行して動き続け、「機械的に従った場合の参考成績」であり続けます。
+      手数料・スリッページ・約定タイミングは考慮していません。投資助言ではありません。
     </div>
   </section>
 
