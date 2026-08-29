@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>週次レポート</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    max-width: 720px; margin: 0 auto; padding: 16px;
+    background: #0f1115; color: #e6e6e6;
+  }
+  a { color: #4f8cff; }
+  h1 { font-size: 1.2rem; margin-bottom: 4px; }
+  .updated { color: #8a8f98; font-size: 0.8rem; margin-bottom: 20px; }
+  .back-link { display: inline-block; margin-bottom: 16px; font-size: 0.85rem; }
+  section { margin-bottom: 26px; }
+  h2 { font-size: 0.95rem; border-left: 4px solid #4f8cff; padding-left: 8px; margin-bottom: 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #2a2d34; white-space: nowrap; }
+  th { color: #8a8f98; font-weight: 500; font-size: 0.72rem; }
+  .table-wrap { overflow-x: auto; }
+  .muted { color: #8a8f98; font-size: 0.9rem; }
+  .note {
+    background: #1a1d24; border-left: 3px solid #f0c419; border-radius: 4px;
+    padding: 10px 14px; font-size: 0.85rem; color: #d8d8d8; margin-top: 12px;
+  }
+</style>
+</head>
+<body>
+  <a class="back-link" href="./">← ダッシュボードに戻る</a>
+  <h1>📅 週次レポート</h1>
+  <div class="updated">最終更新: 08-29 12:52</div>
+
+  <section>
+    <h2>ペーパートレード成績(ソース別推移)</h2>
+    <div class='table-wrap'><table><thead><tr><th>ソース</th><th>今週</th><th>先週</th><th>全期間</th></tr></thead><tbody><tr><td>tech</td><td>0.0%(0/8) -47.2</td><td>-</td><td>0.0%(0/8) -47.2</td></tr></tbody></table></div><p class='muted' style='font-size:0.75rem;margin-top:8px;'>各セル: 勝率(勝ち/件数) 合計損益(想定$)</p>
+    <div class='note'>📉 今週不調: <strong>crypto_technical</strong>(勝率0.0%, 8件)<br></div>
+  </section>
+
+  <p class="muted" style="font-size:0.75rem;">
+    実際の売買ではない自動シミュレーションの集計です。件数が少ないうちは勝率のブレが大きいため、
+    参考程度に見てください。投資助言ではありません。
+  </p>
+</body>
+</html>

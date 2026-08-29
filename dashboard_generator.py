@@ -355,7 +355,7 @@ def build_html() -> str:
 </head>
 <body>
   <h1>🪙 シグナル状況ダッシュボード</h1>
-  <div class="updated">最終更新: {now_str} ・ <a href="about.html" style="color:#4f8cff">このアプリについて</a></div>
+  <div class="updated">最終更新: {now_str} ・ <a href="about.html" style="color:#4f8cff">このアプリについて</a> ・ <a href="weekly.html" style="color:#4f8cff">週次レポート</a></div>
 
   {render_asset_filter(asset_options)}
 
@@ -483,6 +483,132 @@ def generate_about_page():
     print(f"[OK] {ABOUT_OUTPUT_FILE} を生成しました。")
 
 
+# ============ weekly.html(ペーパートレード週次レポート) ============
+
+WEEKLY_OUTPUT_FILE = Path("docs/weekly.html")
+
+
+def render_weekly_table() -> str:
+    this_week = {r["source"]: r for r in db_utils.get_paper_performance_window(24 * 7, 0)}
+    last_week = {r["source"]: r for r in db_utils.get_paper_performance_window(24 * 14, 24 * 7)}
+
+    # get_paper_performance_by_sourceはsource+asset単位のため、source単位に合算し直す
+    all_time_rows = db_utils.get_paper_performance_by_source(hours=24 * 3650)
+    all_time_agg: dict[str, dict] = {}
+    for r in all_time_rows:
+        agg = all_time_agg.setdefault(r["source"], {"total": 0, "win_count": 0, "total_pnl": 0.0})
+        agg["total"] += r["total"]
+        agg["win_count"] += r["win_count"]
+        agg["total_pnl"] += r["total_pnl"]
+
+    sources = sorted(set(this_week) | set(last_week) | set(all_time_agg))
+    if not sources:
+        return "<p class='muted'>まだ決済済みのペーパートレードがありません。</p>"
+
+    def cell(d: dict | None) -> str:
+        if not d or d.get("total", 0) == 0:
+            return "-"
+        return f"{d['win_rate_pct']}%({d['win_count']}/{d['total']}) {d['total_pnl']:+.1f}"
+
+    rows_html = []
+    for source in sources:
+        at = all_time_agg.get(source)
+        at_cell = "-"
+        if at and at["total"]:
+            at_rate = round(at["win_count"] / at["total"] * 100, 1)
+            at_cell = f"{at_rate}%({at['win_count']}/{at['total']}) {at['total_pnl']:+.1f}"
+        rows_html.append(
+            f"<tr><td>{source_label(source)}</td>"
+            f"<td>{cell(this_week.get(source))}</td>"
+            f"<td>{cell(last_week.get(source))}</td>"
+            f"<td>{at_cell}</td></tr>"
+        )
+
+    return (
+        "<div class='table-wrap'><table><thead><tr><th>ソース</th><th>今週</th><th>先週</th><th>全期間</th></tr></thead>"
+        "<tbody>" + "".join(rows_html) + "</tbody></table></div>"
+        "<p class='muted' style='font-size:0.75rem;margin-top:8px;'>各セル: 勝率(勝ち/件数) 合計損益(想定$)</p>"
+    )
+
+
+def render_weekly_highlight() -> str:
+    """相対的な最高/最低ではなく、絶対的な閾値で「好調/不調」を判定する。
+    ソースが1つしかない場合や、全ソースが中間的な成績の場合は何も表示しない。"""
+    this_week = [r for r in db_utils.get_paper_performance_window(24 * 7, 0) if r["total"] >= 3]
+    if not this_week:
+        return ""
+
+    good = [r for r in this_week if r["win_rate_pct"] >= 60]
+    bad = [r for r in this_week if r["win_rate_pct"] <= 40]
+
+    if not good and not bad:
+        return ""
+
+    lines = ["<div class='note'>"]
+    for r in sorted(good, key=lambda r: -r["win_rate_pct"]):
+        lines.append(f"📈 今週好調: <strong>{r['source']}</strong>(勝率{r['win_rate_pct']}%, {r['total']}件)<br>")
+    for r in sorted(bad, key=lambda r: r["win_rate_pct"]):
+        lines.append(f"📉 今週不調: <strong>{r['source']}</strong>(勝率{r['win_rate_pct']}%, {r['total']}件)<br>")
+    lines.append("</div>")
+    return "".join(lines)
+
+
+def generate_weekly_page():
+    now_str = (datetime.utcnow() + JST).strftime("%m-%d %H:%M")
+    content = f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>週次レポート</title>
+<style>
+  :root {{ color-scheme: light dark; }}
+  * {{ box-sizing: border-box; }}
+  body {{
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    max-width: 720px; margin: 0 auto; padding: 16px;
+    background: #0f1115; color: #e6e6e6;
+  }}
+  a {{ color: #4f8cff; }}
+  h1 {{ font-size: 1.2rem; margin-bottom: 4px; }}
+  .updated {{ color: #8a8f98; font-size: 0.8rem; margin-bottom: 20px; }}
+  .back-link {{ display: inline-block; margin-bottom: 16px; font-size: 0.85rem; }}
+  section {{ margin-bottom: 26px; }}
+  h2 {{ font-size: 0.95rem; border-left: 4px solid #4f8cff; padding-left: 8px; margin-bottom: 10px; }}
+  table {{ width: 100%; border-collapse: collapse; font-size: 0.8rem; }}
+  th, td {{ text-align: left; padding: 6px 8px; border-bottom: 1px solid #2a2d34; white-space: nowrap; }}
+  th {{ color: #8a8f98; font-weight: 500; font-size: 0.72rem; }}
+  .table-wrap {{ overflow-x: auto; }}
+  .muted {{ color: #8a8f98; font-size: 0.9rem; }}
+  .note {{
+    background: #1a1d24; border-left: 3px solid #f0c419; border-radius: 4px;
+    padding: 10px 14px; font-size: 0.85rem; color: #d8d8d8; margin-top: 12px;
+  }}
+</style>
+</head>
+<body>
+  <a class="back-link" href="./">← ダッシュボードに戻る</a>
+  <h1>📅 週次レポート</h1>
+  <div class="updated">最終更新: {now_str}</div>
+
+  <section>
+    <h2>ペーパートレード成績(ソース別推移)</h2>
+    {render_weekly_table()}
+    {render_weekly_highlight()}
+  </section>
+
+  <p class="muted" style="font-size:0.75rem;">
+    実際の売買ではない自動シミュレーションの集計です。件数が少ないうちは勝率のブレが大きいため、
+    参考程度に見てください。投資助言ではありません。
+  </p>
+</body>
+</html>
+"""
+    WEEKLY_OUTPUT_FILE.parent.mkdir(exist_ok=True)
+    WEEKLY_OUTPUT_FILE.write_text(content, encoding="utf-8")
+    print(f"[OK] {WEEKLY_OUTPUT_FILE} を生成しました。")
+
+
 def main():
     db_utils.init_db()
     OUTPUT_FILE.parent.mkdir(exist_ok=True)
@@ -490,6 +616,7 @@ def main():
     print(f"[OK] {OUTPUT_FILE} を生成しました。")
 
     generate_about_page()
+    generate_weekly_page()
 
 
 if __name__ == "__main__":

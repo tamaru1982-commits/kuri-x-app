@@ -328,6 +328,36 @@ def get_paper_performance_by_source(hours: int = 24 * 30) -> list[dict]:
     return result
 
 
+def get_paper_performance_window(start_hours_ago: int, end_hours_ago: int) -> list[dict]:
+    """ペーパートレードのソース別成績を、指定した期間の窓
+    (今からstart_hours_ago〜end_hours_ago時間前の間に決済されたもの)で集計する。
+    週次レポートで「今週」「先週」を比較するために資産をまたいでsource単位に集計する。"""
+    conn = get_conn()
+    rows = conn.execute(f"""
+        SELECT source,
+               COUNT(*) as total,
+               SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as win_count,
+               SUM(pnl) as total_pnl,
+               AVG(pnl) as avg_pnl
+        FROM journal
+        WHERE is_paper = 1 AND status = 'closed'
+        AND datetime(exit_timestamp) >= datetime('now', '-{start_hours_ago} hours')
+        AND datetime(exit_timestamp) < datetime('now', '-{end_hours_ago} hours')
+        GROUP BY source
+    """).fetchall()
+    conn.close()
+
+    result = []
+    for r in rows:
+        rate = (r["win_count"] / r["total"] * 100) if r["total"] else 0
+        result.append({
+            "source": r["source"], "total": r["total"],
+            "win_count": r["win_count"], "win_rate_pct": round(rate, 1),
+            "total_pnl": round(r["total_pnl"], 2), "avg_pnl": round(r["avg_pnl"], 2),
+        })
+    return result
+
+
 if __name__ == "__main__":
     init_db()
     print(f"[OK] {DB_FILE} を初期化しました。")
