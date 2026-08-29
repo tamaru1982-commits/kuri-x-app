@@ -17,6 +17,7 @@ from collections import defaultdict
 import requests
 
 import db_utils
+import price_utils
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 LOOKBACK_HOURS = int(os.environ.get("CONFLUENCE_LOOKBACK_HOURS", "6"))
@@ -75,12 +76,25 @@ def main():
         print("コンフルエンス(複数ソース一致)は見つかりませんでした。")
         return 0
 
+    # 通知対象の銘柄の価格をまとめて1回で取得する(発生時点の価格を残さないと
+    # accuracy_tracker/target_trackerが検証対象にできず、的中率が永久に0件になる)
+    targets = [
+        item for item in confluences
+        if not db_utils.was_recently_notified(SOURCE_NAME, item["asset"], item["direction"], COOLDOWN_MINUTES)
+    ]
+    prices = {}
+    if targets:
+        try:
+            prices = price_utils.fetch_prices(sorted({item["asset"] for item in targets}))
+        except Exception as e:
+            print(f"[警告] 価格取得に失敗しました(検証対象外として記録します): {e}")
+
     for item in confluences:
         if db_utils.was_recently_notified(SOURCE_NAME, item["asset"], item["direction"], COOLDOWN_MINUTES):
             print(f"[スキップ] {item['asset']} {item['direction']} はクールダウン中")
             continue
 
-        db_utils.log_signal(SOURCE_NAME, item["asset"], item["direction"], None,
+        db_utils.log_signal(SOURCE_NAME, item["asset"], item["direction"], prices.get(item["asset"]),
                              message=f"sources={','.join(item['sources'])}")
         send_discord_notification(item)
 

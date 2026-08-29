@@ -26,6 +26,7 @@ from pathlib import Path
 import requests
 
 import db_utils
+import price_utils
 
 # ============ 設定 ============
 
@@ -199,7 +200,13 @@ def main():
             if db_utils.was_recently_notified(SOURCE_NAME, asset, signal, COOLDOWN_MINUTES):
                 print(f"[スキップ] {asset} {signal} はクールダウン中: {text[:30]}...")
             else:
-                db_utils.log_signal(SOURCE_NAME, asset, signal, None, message=text[:200])
+                # 発生時点の価格を記録しないと後から的中率・目標到達率を検証できない
+                try:
+                    price_now = price_utils.get_current_price(asset)
+                except Exception as e:
+                    print(f"[警告] {asset} の価格取得に失敗しました(検証対象外として記録します): {e}")
+                    price_now = None
+                db_utils.log_signal(SOURCE_NAME, asset, signal, price_now, message=text[:200])
                 send_discord_notification(TARGET_USERNAME, text, signal, tweet_id, asset)
         elif signal:
             print(f"[情報] 混在シグナルのため通知スキップ: {text[:30]}...")

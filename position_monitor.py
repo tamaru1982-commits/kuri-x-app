@@ -30,13 +30,13 @@ crypto_signal_notifier.py実行後を追いかける形で、30分おきの実�
 import os
 import sys
 import json
-import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
 
 import db_utils
+import price_utils
 
 TARGET_PROFIT_PCT = float(os.environ.get("POSITION_TARGET_PROFIT_PCT", "5.0"))
 ALERT_COOLDOWN_HOURS = float(os.environ.get("POSITION_ALERT_COOLDOWN_HOURS", "12"))
@@ -47,15 +47,7 @@ TECH_SIGNAL_LOOKBACK_HOURS = float(os.environ.get("POSITION_TECH_LOOKBACK_HOURS"
 PAPER_FEE_PCT = float(os.environ.get("PAPER_FEE_PCT", "0.15"))
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
-COINGECKO_BASE = "https://api.coingecko.com/api/v3"
 STATE_FILE = Path("position_monitor_state.json")
-
-# crypto_signal_notifier.py / accuracy_tracker.py / target_tracker.py と同じ対応表
-SYMBOL_TO_COINGECKO_ID = {
-    "BTC": "bitcoin", "ETH": "ethereum", "SOL": "solana", "XRP": "ripple",
-    "HYPE": "hyperliquid", "DOGE": "dogecoin", "EDGE": "edgex", "TRIA": "tria",
-    "SUI": "sui", "AAVE": "aave",
-}
 
 
 def load_state() -> dict:
@@ -69,24 +61,6 @@ def load_state() -> dict:
 
 def save_state(state: dict):
     STATE_FILE.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
-
-
-def get_current_price(symbol: str) -> float | None:
-    coin_id = SYMBOL_TO_COINGECKO_ID.get(symbol)
-    if not coin_id:
-        return None
-    url = f"{COINGECKO_BASE}/simple/price"
-    params = {"ids": coin_id, "vs_currencies": "usd"}
-
-    resp = requests.get(url, params=params, timeout=15)
-    if resp.status_code == 429:
-        for _ in range(2):
-            time.sleep(30)
-            resp = requests.get(url, params=params, timeout=15)
-            if resp.status_code != 429:
-                break
-    resp.raise_for_status()
-    return resp.json().get(coin_id, {}).get("usd")
 
 
 def has_recent_short_signal(asset: str, hours: float) -> bool:
@@ -104,12 +78,12 @@ def was_recently_alerted(state: dict, journal_id: int, alert_type: str, cooldown
     last = state.get(f"{journal_id}:{alert_type}")
     if not last:
         return False
-    elapsed_hours = (datetime.utcnow() - datetime.fromisoformat(last)).total_seconds() / 3600
+    elapsed_hours = (datetime.now(timezone.utc).replace(tzinfo=None) - datetime.fromisoformat(last)).total_seconds() / 3600
     return elapsed_hours < cooldown_hours
 
 
 def mark_alerted(state: dict, journal_id: int, alert_type: str):
-    state[f"{journal_id}:{alert_type}"] = datetime.utcnow().isoformat()
+    state[f"{journal_id}:{alert_type}"] = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
 
 
 def build_alert_message(row, current_price: float, pnl_pct: float, alert_types: list[str]) -> str:
@@ -182,20 +156,18 @@ def main():
         save_state(state)  # state_fileが未作成だとワークフロー側のgit addが失敗するため必ず保存する
         return 0
 
-    price_cache: dict[str, float | None] = {}
+    # 保有銘柄の価格は1回のリクエストでまとめて取得する(同じ銘柄の複数ポジションでも
+    # 呼び出しは1回で済み、CoinGeckoのレート制限を受けにくい)
+    try:
+        prices = price_utils.fetch_prices(sorted({row["asset"] for row in positions}))
+    except Exception as e:
+        print(f"[エラー] 価格取得に失敗しました: {e}")
+        save_state(state)
+        return 0
 
     for row in positions:
         asset = row["asset"]
-
-        if asset not in price_cache:
-            try:
-                price_cache[asset] = get_current_price(asset)
-            except Exception as e:
-                print(f"[エラー] {asset} の価格取得に失敗しました: {e}")
-                price_cache[asset] = None
-            time.sleep(2)  # 銘柄ごとに1回だけ取得し、CoinGeckoのレート制限を避ける
-
-        current_price = price_cache[asset]
+        current_price = prices.get(asset)
         if current_price is None:
             print(f"[スキップ] {asset}: 価格取得不可(対応表未登録の可能性)")
             continue

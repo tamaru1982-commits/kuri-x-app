@@ -6,9 +6,18 @@ crypto_signal_notifier.py が記録したシグナル(LONG/SHORT)について、
 さらに、直近の的中率サマリーをDiscordに定期報告する。
 
 前提:
-- 価格追跡はCoinGecko(仮想通貨)を想定。priceが記録されているシグナル(=crypto_technical)のみ対象。
-  X投稿シグナルは価格が紐付いていないため、的中率検証の対象外(将来的に拡張可能)。
+- 価格追跡はCoinGecko(仮想通貨)を想定。price_at_signalが記録されているシグナルのみ対象。
 - このスクリプトは1〜数時間おきに実行する想定(GitHub Actionsのcronで管理)。
+
+判定窓について:
+判定対象は「発生からN時間経過したもの」という時間窓で絞っているため、窓の間に
+実行が失敗し続けると、そのシグナルの判定は二度と行われない(永久欠損になる)。
+これを避けるため、
+- 価格取得は銘柄ごとにまとめて1回だけ行い(price_utils.fetch_prices)、
+  レート制限のリトライも共通化する
+- 1件の失敗で全体を落とさず、取得できた分だけ確実に記録する
+- 時間窓に余裕を持たせる(1回取りこぼしても次の実行で拾えるようにする)
+の3点で守っている。
 """
 
 import os
@@ -17,57 +26,48 @@ from datetime import datetime, timezone
 import requests
 
 import db_utils
+import price_utils
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
-COINGECKO_BASE = "https://api.coingecko.com/api/v3"
-
-# symbol -> coingecko id の対応(crypto_signal_notifier.pyのCOINSと合わせる)
-SYMBOL_TO_COINGECKO_ID = {
-    "BTC": "bitcoin",
-    "ETH": "ethereum",
-    "SOL": "solana",
-    "XRP": "ripple",
-    "HYPE": "hyperliquid",
-    "DOGE": "dogecoin",
-    "EDGE": "edgex",
-    "TRIA": "tria",
-    "SUI": "sui",
-    "AAVE": "aave",
-}
 
 # 週次サマリーをどの曜日に送るか(0=月曜 ... 6=日曜)。Noneなら毎回送る。
 SUMMARY_WEEKDAY = int(os.environ.get("SUMMARY_WEEKDAY", "0"))  # デフォルト: 月曜
 
 
-def get_current_price(symbol: str) -> float | None:
-    coin_id = SYMBOL_TO_COINGECKO_ID.get(symbol)
-    if not coin_id:
-        return None
+def record_pending(min_age_hours: float, max_age_hours: float,
+                   outcome_field: str, price_field: str, label: str):
+    """指定した時間窓の未判定シグナルについて、現在価格を取得して的中/不的中を記録する。
+    必要な銘柄の価格は1回のリクエストでまとめて取得し、レート制限を受けにくくする。"""
+    pending = db_utils.get_pending_outcome_signals(
+        min_age_hours=min_age_hours, max_age_hours=max_age_hours, outcome_field=outcome_field
+    )
+    if not pending:
+        return
 
-    url = f"{COINGECKO_BASE}/simple/price"
-    params = {"ids": coin_id, "vs_currencies": "usd"}
-    resp = requests.get(url, params=params, timeout=15)
-    resp.raise_for_status()
-    data = resp.json()
-    return data.get(coin_id, {}).get("usd")
+    symbols = sorted({row["asset"] for row in pending if price_utils.is_supported(row["asset"])})
+    try:
+        prices = price_utils.fetch_prices(symbols)
+    except Exception as e:
+        # ここで例外を投げるとワークフロー自体が落ち、DBのコミット手順まで到達しない。
+        # 判定窓を逃すと永久欠損になるため、失敗しても次回に賭けて処理を続行する。
+        print(f"[エラー] {label}: 価格取得に失敗したためスキップします: {e}")
+        return
+
+    for row in pending:
+        price_now = prices.get(row["asset"])
+        if price_now is None:
+            print(f"[スキップ] {label} {row['asset']}: 価格取得不可(対応表未登録の可能性)")
+            continue
+        db_utils.record_outcome(row["id"], price_field, outcome_field, price_now)
+        print(f"[{label}] {row['asset']} {row['direction']} -> 記録済み")
 
 
 def check_outcomes():
-    # 1時間後チェック(50分〜90分経過したものを対象)
-    pending_1h = db_utils.get_pending_outcome_signals(min_age_hours=50 / 60, max_age_hours=90 / 60, outcome_field="outcome_1h")
-    for row in pending_1h:
-        price_now = get_current_price(row["asset"])
-        if price_now is not None:
-            db_utils.record_outcome(row["id"], "price_1h", "outcome_1h", price_now)
-            print(f"[1h検証] {row['asset']} {row['direction']} -> 記録済み")
+    # 1時間後チェック(50分〜3時間経過したものを対象。1回失敗しても次回に拾えるよう幅を持たせる)
+    record_pending(50 / 60, 3, "outcome_1h", "price_1h", "1h検証")
 
-    # 24時間後チェック(22時間〜26時間経過したものを対象)
-    pending_24h = db_utils.get_pending_outcome_signals(min_age_hours=22, max_age_hours=26, outcome_field="outcome_24h")
-    for row in pending_24h:
-        price_now = get_current_price(row["asset"])
-        if price_now is not None:
-            db_utils.record_outcome(row["id"], "price_24h", "outcome_24h", price_now)
-            print(f"[24h検証] {row['asset']} {row['direction']} -> 記録済み")
+    # 24時間後チェック(22時間〜30時間経過したものを対象)
+    record_pending(22, 30, "outcome_24h", "price_24h", "24h検証")
 
 
 def build_summary_message() -> str | None:

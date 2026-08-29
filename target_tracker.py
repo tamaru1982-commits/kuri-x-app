@@ -25,27 +25,24 @@ target_tracker.py
 import os
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 import requests
 import pandas as pd
 
 import db_utils
+import price_utils
 
 TARGET_PCT = float(os.environ.get("TARGET_PCT", "5.0"))
 TARGET_WINDOW_HOURS = float(os.environ.get("TARGET_WINDOW_HOURS", "72"))
 
-COINGECKO_BASE = "https://api.coingecko.com/api/v3"
-
-# crypto_signal_notifier.py / accuracy_tracker.py と同じ対応表
-SYMBOL_TO_COINGECKO_ID = {
-    "BTC": "bitcoin", "ETH": "ethereum", "SOL": "solana", "XRP": "ripple",
-    "HYPE": "hyperliquid", "DOGE": "dogecoin", "EDGE": "edgex", "TRIA": "tria",
-    "SUI": "sui", "AAVE": "aave",
-}
+COINGECKO_BASE = price_utils.COINGECKO_BASE
+SYMBOL_TO_COINGECKO_ID = price_utils.SYMBOL_TO_COINGECKO_ID
 
 
 def fetch_price_series(coin_id: str) -> pd.Series:
+    """目標到達判定には値動きの経路が必要なため、現在値ではなく時系列を取得する
+    (price_utilsは現在値専用なので、こちらは個別に持つ)。"""
     url = f"{COINGECKO_BASE}/coins/{coin_id}/market_chart"
     params = {"vs_currency": "usd", "days": 7}
     resp = requests.get(url, params=params, timeout=15)
@@ -88,7 +85,7 @@ def evaluate_signal(row, price_series: pd.Series) -> dict | None:
     pct_change = (after - price_at_signal) / price_at_signal * 100
     favorable = pct_change if direction == "LONG" else -pct_change
 
-    elapsed_hours = (datetime.utcnow() - signal_time_naive).total_seconds() / 3600
+    elapsed_hours = (datetime.now(timezone.utc).replace(tzinfo=None) - signal_time_naive).total_seconds() / 3600
     target_pct = row["target_pct"] or TARGET_PCT
     window_hours = row["target_window_hours"] or TARGET_WINDOW_HOURS
 

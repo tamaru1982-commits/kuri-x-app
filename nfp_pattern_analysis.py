@@ -24,7 +24,7 @@ economic_calendar_reminder.py がこの出力ファイルを読み込んで通�
 import os
 import sys
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
@@ -168,7 +168,7 @@ def main():
     patterns = summarize(records)
 
     output = {
-        "generated_at": datetime.utcnow().isoformat(),
+        "generated_at": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
         "lookback_releases": LOOKBACK_RELEASES,
         "patterns": patterns,
     }

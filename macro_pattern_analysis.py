@@ -39,7 +39,7 @@ macro_pattern_analysis.py
 import os
 import sys
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
@@ -187,7 +187,7 @@ def run_analysis() -> dict:
     patterns = summarize(df)
 
     return {
-        "generated_at": datetime.utcnow().isoformat(),
+        "generated_at": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
         "data_from": str(valid.index.min()) if not valid.empty else None,
         "data_to": str(valid.index.max()) if not valid.empty else None,
         "patterns": patterns,

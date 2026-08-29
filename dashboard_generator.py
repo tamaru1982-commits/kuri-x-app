@@ -15,7 +15,7 @@ dashboard.yml(定期実行)から呼び出され、生成後にdocs/index.html�
 import html
 import os
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import db_utils
@@ -50,6 +50,9 @@ ASSET_COLORS = {
     "市場全体": "#c9c9c9",
 }
 DEFAULT_ASSET_COLOR = "#e6e6e6"
+
+# この件数に満たない集計は統計的な意味を持たないため「参考値」として表示する
+MIN_RELIABLE_SAMPLES = int(os.environ.get("MIN_RELIABLE_SAMPLES", "20"))
 
 
 def to_short_time(iso_timestamp: str) -> str:
@@ -179,6 +182,31 @@ def render_recent_signals(rows) -> str:
     return (
         "<table class='filterable'><thead><tr><th>時刻</th><th>ソース</th><th>資産</th>"
         "<th>方向・根拠</th></tr></thead><tbody>" + "".join(items) + "</tbody></table>"
+    )
+
+
+def render_hit_rate_by_source(summary) -> str:
+    """ソース単位の的中率。source×assetに分けるとサンプルが細切れになるため、
+    「どのソースが効いているか」はこちらの表で見る。
+    件数が少ないうちは数字を鵜呑みにできないので、目安件数に満たない行は注記する。"""
+    if not summary:
+        return "<p class='muted'>まだ的中率を計算できるデータがありません。</p>"
+
+    items = []
+    for row in summary:
+        enough = row["total"] >= MIN_RELIABLE_SAMPLES
+        note = "" if enough else f"<span class='basis'> ・参考値</span>"
+        rate_color = "#e6e6e6" if not enough else ("#4ade80" if row["hit_rate_pct"] >= 50 else "#f87171")
+        items.append(
+            f"<tr><td>{source_label(row['source'])}</td>"
+            f"<td style='color:{rate_color};font-variant-numeric:tabular-nums;'>{row['hit_rate_pct']}%</td>"
+            f"<td>{row['correct']}/{row['total']}件{note}</td></tr>"
+        )
+    return (
+        "<table><thead><tr><th>ソース</th><th>的中率</th><th>件数</th></tr></thead>"
+        "<tbody>" + "".join(items) + "</tbody></table>"
+        f"<p class='muted' style='font-size:0.72rem;'>※往復手数料({db_utils.HIT_THRESHOLD_PCT}%)を超えて"
+        f"動いた場合のみ「的中」として数えています。{MIN_RELIABLE_SAMPLES}件未満は参考値です。</p>"
     )
 
 
@@ -323,12 +351,13 @@ FILTER_SCRIPT = """
 def build_html() -> str:
     recent_signals = db_utils.get_recent_signals(hours=72)
     hit_rate = db_utils.get_hit_rate_summary(hours=24 * 30)
+    hit_rate_by_source = db_utils.get_hit_rate_by_source(hours=24 * 30)
     target_summary = db_utils.get_target_hit_summary(hours=24 * 30)
     open_positions = db_utils.get_open_positions(is_paper=False)
     journal_summary = db_utils.get_journal_summary(is_paper=False)
     paper_performance = db_utils.get_paper_performance_by_source(hours=24 * 30)
 
-    now_str = (datetime.utcnow() + JST).strftime("%m-%d %H:%M")
+    now_str = (datetime.now(timezone.utc).replace(tzinfo=None) + JST).strftime("%m-%d %H:%M")
     asset_options = collect_assets(recent_signals, open_positions, hit_rate)
 
     return f"""<!DOCTYPE html>
@@ -418,7 +447,12 @@ def build_html() -> str:
   </section>
 
   <section>
-    <h2>的中率(直近30日)</h2>
+    <h2>的中率(ソース別・直近30日)</h2>
+    {render_hit_rate_by_source(hit_rate_by_source)}
+  </section>
+
+  <section>
+    <h2>的中率(銘柄別・直近30日)</h2>
     {render_hit_rate(hit_rate)}
   </section>
 
@@ -632,7 +666,7 @@ def render_compounding_curve() -> str:
 
 
 def generate_weekly_page():
-    now_str = (datetime.utcnow() + JST).strftime("%m-%d %H:%M")
+    now_str = (datetime.now(timezone.utc).replace(tzinfo=None) + JST).strftime("%m-%d %H:%M")
     content = f"""<!DOCTYPE html>
 <html lang="ja">
 <head>

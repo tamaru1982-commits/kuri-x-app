@@ -26,25 +26,16 @@ journal.is_paper列で区別され、混同しない。
 import os
 import sys
 import json
-import time
 from pathlib import Path
 
-import requests
-
 import db_utils
+import price_utils
 import risk_utils
 
 NOTIONAL_USD = float(os.environ.get("PAPER_NOTIONAL_USD", "100"))  # 1トレードあたりの想定金額
 STOP_LOSS_PCT = risk_utils.DEFAULT_STOP_LOSS_PCT
 
 STATE_FILE = Path("paper_trader_state.json")
-COINGECKO_BASE = "https://api.coingecko.com/api/v3"
-
-SYMBOL_TO_COINGECKO_ID = {
-    "BTC": "bitcoin", "ETH": "ethereum", "SOL": "solana", "XRP": "ripple",
-    "HYPE": "hyperliquid", "DOGE": "dogecoin", "EDGE": "edgex", "TRIA": "tria",
-    "SUI": "sui", "AAVE": "aave",
-}
 
 
 def load_state() -> dict:
@@ -58,17 +49,6 @@ def load_state() -> dict:
 
 def save_state(state: dict):
     STATE_FILE.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
-
-
-def get_current_price(symbol: str) -> float | None:
-    coin_id = SYMBOL_TO_COINGECKO_ID.get(symbol)
-    if not coin_id:
-        return None
-    url = f"{COINGECKO_BASE}/simple/price"
-    params = {"ids": coin_id, "vs_currencies": "usd"}
-    resp = requests.get(url, params=params, timeout=15)
-    resp.raise_for_status()
-    return resp.json().get(coin_id, {}).get("usd")
 
 
 def get_new_long_signals(since_id: int) -> list:
@@ -89,7 +69,20 @@ def main():
     signals = get_new_long_signals(last_id)
     if not signals:
         print("新規のLONGシグナルはありません。")
+        save_state(state)  # state_fileが未作成だとワークフロー側のgit addが失敗するため必ず保存する
         return 0
+
+    # price_at_signalが無いシグナル用に、必要な銘柄の価格をまとめて1回で取得する
+    missing_price_assets = sorted({
+        sig["asset"] for sig in signals
+        if sig["price_at_signal"] is None and price_utils.is_supported(sig["asset"])
+    })
+    fallback_prices = {}
+    if missing_price_assets:
+        try:
+            fallback_prices = price_utils.fetch_prices(missing_price_assets)
+        except Exception as e:
+            print(f"[エラー] 価格取得に失敗しました: {e}")
 
     opened = 0
     max_id = last_id
@@ -98,18 +91,13 @@ def main():
         max_id = max(max_id, sig["id"])
         asset = sig["asset"]
 
-        if asset not in SYMBOL_TO_COINGECKO_ID:
+        if not price_utils.is_supported(asset):
             print(f"[スキップ] {sig['source']} {asset}: 対応表未登録のため対象外")
             continue
 
         price = sig["price_at_signal"]
         if price is None:
-            try:
-                price = get_current_price(asset)
-                time.sleep(2)
-            except Exception as e:
-                print(f"[エラー] {asset} の価格取得に失敗しました: {e}")
-                continue
+            price = fallback_prices.get(asset)
 
         if price is None or price <= 0:
             print(f"[スキップ] {sig['source']} {asset}: 価格取得不可")

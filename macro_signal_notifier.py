@@ -26,6 +26,7 @@ import yfinance as yf
 
 import db_utils
 import macro_pattern_analysis as mpa
+import price_utils
 
 FRED_API_KEY = os.environ.get("FRED_API_KEY", "")
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
@@ -157,7 +158,14 @@ def main():
         print(f"{signal} だがクールダウン中のためスキップ")
         return 0
 
-    db_utils.log_signal(SOURCE_NAME, "BTC", signal, None,
+    # 発生時点の価格を記録しないと後から的中率・目標到達率を検証できない
+    try:
+        price_now = price_utils.get_current_price("BTC")
+    except Exception as e:
+        print(f"[警告] BTCの価格取得に失敗しました(検証対象外として記録します): {e}")
+        price_now = None
+
+    db_utils.log_signal(SOURCE_NAME, "BTC", signal, price_now,
                          message=f"{pattern_key} n{stats['sample_count']} {stats['up_ratio_pct']}%")
     send_discord_notification(pattern_key, stats, signal, data_range)
     return 0

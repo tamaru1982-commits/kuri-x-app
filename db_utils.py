@@ -9,11 +9,24 @@ SQLiteデータベースのヘルパー関数群。
 - journal: 手動で記録するトレード日誌
 """
 
+import os
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 DB_FILE = Path("trading_system.db")
+
+# 「的中」と見なすために必要な最低変動幅(%)。
+# 往復手数料(片道0.15%×2=0.3%)を超えて動いて初めて実際には利益になるため、
+# それ未満の微動を「的中」に数えると的中率が実態より甘く出る。
+HIT_THRESHOLD_PCT = float(os.environ.get("HIT_THRESHOLD_PCT", "0.3"))
+
+
+def utc_now_iso() -> str:
+    """DBに保存する時刻文字列(UTC・タイムゾーン表記なし)。
+    datetime.utcnow()は非推奨のため置き換えたが、保存フォーマットは
+    既存データとの比較互換のため従来どおりtzinfoなしのISO形式を維持する。"""
+    return datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
 
 
 def get_conn() -> sqlite3.Connection:
@@ -90,7 +103,7 @@ def log_signal(source: str, asset: str, direction: str, price: float | None, mes
     cur = conn.execute(
         "INSERT INTO signals (timestamp, source, asset, direction, price_at_signal, message) "
         "VALUES (?, ?, ?, ?, ?, ?)",
-        (datetime.utcnow().isoformat(), source, asset, direction, price, message),
+        (utc_now_iso(), source, asset, direction, price, message),
     )
     conn.commit()
     signal_id = cur.lastrowid
@@ -112,7 +125,7 @@ def was_recently_notified(source: str, asset: str, direction: str, cooldown_minu
         return False
 
     last_time = datetime.fromisoformat(row["timestamp"])
-    elapsed_minutes = (datetime.utcnow() - last_time).total_seconds() / 60
+    elapsed_minutes = (datetime.now(timezone.utc).replace(tzinfo=None) - last_time).total_seconds() / 60
     return elapsed_minutes < cooldown_minutes
 
 
@@ -151,10 +164,12 @@ def record_outcome(signal_id: int, field_price: str, field_outcome: str, price_n
     price_then = row["price_at_signal"]
     direction = row["direction"]
 
-    if direction == "LONG":
-        outcome = "correct" if price_now > price_then else "incorrect"
-    else:  # SHORT
-        outcome = "correct" if price_now < price_then else "incorrect"
+    # 単なる方向の一致ではなく、往復手数料を超えて動いたかどうかで判定する。
+    # (+0.001%でも「的中」にすると、実際には手数料負けする動きまで的中に数えてしまう)
+    move_pct = (price_now - price_then) / price_then * 100
+    if direction == "SHORT":
+        move_pct = -move_pct
+    outcome = "correct" if move_pct >= HIT_THRESHOLD_PCT else "incorrect"
 
     conn.execute(
         f"UPDATE signals SET {field_price} = ?, {field_outcome} = ? WHERE id = ?",
@@ -183,6 +198,33 @@ def get_hit_rate_summary(hours: int = 24 * 30) -> list[dict]:
         result.append({
             "source": r["source"], "asset": r["asset"],
             "total": r["total"], "correct": r["correct_count"], "hit_rate_pct": round(rate, 1),
+        })
+    return result
+
+
+def get_hit_rate_by_source(hours: int = 24 * 30) -> list[dict]:
+    """的中率をソース単位で集計する(銘柄をまたいで合算)。
+    source×assetで分けるとサンプルが細切れになり統計的に意味を持たないため、
+    「どのソースが効いているか」を見るにはこちらを使う。"""
+    conn = get_conn()
+    rows = conn.execute(f"""
+        SELECT source,
+               COUNT(*) as total,
+               SUM(CASE WHEN outcome_24h = 'correct' THEN 1 ELSE 0 END) as correct_count
+        FROM signals
+        WHERE outcome_24h IS NOT NULL
+        AND datetime(timestamp) >= datetime('now', '-{hours} hours')
+        GROUP BY source
+        ORDER BY total DESC
+    """).fetchall()
+    conn.close()
+
+    result = []
+    for r in rows:
+        rate = (r["correct_count"] / r["total"] * 100) if r["total"] else 0
+        result.append({
+            "source": r["source"], "total": r["total"],
+            "correct": r["correct_count"], "hit_rate_pct": round(rate, 1),
         })
     return result
 
@@ -230,7 +272,7 @@ def add_journal_entry(asset: str, direction: str, entry_price: float, size: floa
     cur = conn.execute(
         "INSERT INTO journal (timestamp, asset, direction, entry_price, size, stop_loss, note, is_paper, source) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (datetime.utcnow().isoformat(), asset, direction, entry_price, size, stop_loss, note,
+        (utc_now_iso(), asset, direction, entry_price, size, stop_loss, note,
          1 if is_paper else 0, source),
     )
     conn.commit()
@@ -253,7 +295,7 @@ def close_journal_entry(entry_id: int, exit_price: float):
 
     conn.execute(
         "UPDATE journal SET exit_price = ?, exit_timestamp = ?, pnl = ?, status = 'closed' WHERE id = ?",
-        (exit_price, datetime.utcnow().isoformat(), pnl, entry_id),
+        (exit_price, utc_now_iso(), pnl, entry_id),
     )
     conn.commit()
     conn.close()

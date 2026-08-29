@@ -34,6 +34,7 @@ from pathlib import Path
 import requests
 
 import db_utils
+import price_utils
 
 # ============ 設定 ============
 
@@ -209,6 +210,16 @@ def send_discord_notification(tweet_text: str, signal: str, asset: str, reason: 
 
 # ============ メイン処理 ============
 
+def fetch_signal_price(asset: str) -> float | None:
+    """シグナル記録用に発生時点の価格を取得する。
+    価格が取れなくても通知自体は行いたいので、失敗してもNoneを返して続行する。"""
+    try:
+        return price_utils.get_current_price(asset)
+    except Exception as e:
+        print(f"[警告] {asset} の価格取得に失敗しました(検証対象外として記録します): {e}")
+        return None
+
+
 def main():
     if not X_BEARER_TOKEN:
         print("[エラー] X_BEARER_TOKEN が設定されていません。")
@@ -247,7 +258,10 @@ def main():
                 print(f"[スキップ] {asset} {signal} はクールダウン中: {text[:30]}...")
             else:
                 amount_note = f" ${amount_usd:,.0f}" if amount_usd is not None else ""
-                db_utils.log_signal(SOURCE_NAME, asset, signal, None, message=f"{reason}{amount_note}")
+                # 発生時点の価格を記録しないと、後から的中率・目標到達率を検証できない
+                # (accuracy_tracker/target_trackerはprice_at_signalがある行のみ対象とするため)
+                price_now = fetch_signal_price(asset)
+                db_utils.log_signal(SOURCE_NAME, asset, signal, price_now, message=f"{reason}{amount_note}")
                 send_discord_notification(text, signal, asset, reason, tweet_id, amount_usd)
         else:
             print(f"[スキップ] 対象外/抽出不可: {text[:200]}")

@@ -191,24 +191,38 @@
 
   <section>
     <h2>各情報の取得タイミング</h2>
-    <p>すべてGitHub Actionsの定期実行(cron)で自動的に動いています。時刻は日本時間(JST)の目安です。</p>
+    <p>
+      すべてGitHub Actionsの定期実行(cron)で自動的に動いています。時刻は日本時間(JST)の目安です。
+      実行する分は「検知 → 一致判定 → 建玉 → 監視 → 表示 → 検証」の順に3分ずつずらしてあり、
+      2つの処理が同時に走らないようにしています(理由は下の注記)。
+    </p>
     <table>
-      <thead><tr><th>機能</th><th>実行タイミング</th><th>設定ファイル</th></tr></thead>
+      <thead><tr><th>機能</th><th>実行タイミング(毎時)</th><th>設定ファイル</th></tr></thead>
       <tbody>
-        <tr><td>tech / dip(価格取得・判定)</td><td>30分おき</td><td><code>crypto_signal.yml</code></td></tr>
-        <tr><td>x(X投稿監視)</td><td>7,8,12,13,15,17,19-24,1,2時台のみ15分おき</td><td><code>x_signal.yml</code></td></tr>
-        <tr><td>whale(クジラ監視)</td><td>7,8,12,13,15,17,19-24,1,2時台のみ15分おき</td><td><code>whale_signal.yml</code></td></tr>
-        <tr><td>conf(複数ソース一致確認)</td><td>毎時10分・40分</td><td><code>confluence_checker.yml</code></td></tr>
-        <tr><td>的中率検証</td><td>毎時5分(結果検証)、月曜に週次サマリー</td><td><code>accuracy_tracker.yml</code></td></tr>
-        <tr><td>目標到達判定</td><td>毎時15分</td><td><code>target_tracker.yml</code></td></tr>
-        <tr><td>ポジション監視</td><td>毎時5分・20分・35分・50分</td><td><code>position_monitor.yml</code></td></tr>
-        <tr><td>ペーパートレード記録</td><td>15分おき</td><td><code>paper_trader.yml</code></td></tr>
-        <tr><td>macro(マクロ相関判定)</td><td>毎月8日 23:00頃</td><td><code>macro_signal.yml</code></td></tr>
-        <tr><td>経済指標リマインド</td><td>毎日22:00頃</td><td><code>economic_calendar_reminder.yml</code></td></tr>
+        <tr><td>tech / dip(価格取得・判定)</td><td>00分・30分</td><td><code>crypto_signal.yml</code></td></tr>
+        <tr><td>whale(クジラ監視)</td><td>03・18・33・48分(指定時間帯のみ)</td><td><code>whale_signal.yml</code></td></tr>
+        <tr><td>conf(複数ソース一致確認)</td><td>06分・36分</td><td><code>confluence_checker.yml</code></td></tr>
+        <tr><td>ペーパートレード記録</td><td>09分・39分</td><td><code>paper_trader.yml</code></td></tr>
+        <tr><td>ポジション監視</td><td>12分・42分</td><td><code>position_monitor.yml</code></td></tr>
+        <tr><td>ダッシュボード更新</td><td>15分・45分</td><td><code>dashboard.yml</code></td></tr>
+        <tr><td>x(X投稿監視)</td><td>21分・51分(指定時間帯のみ・現在停止中)</td><td><code>x_signal.yml</code></td></tr>
+        <tr><td>的中率検証</td><td>24分、月曜に週次サマリー</td><td><code>accuracy_tracker.yml</code></td></tr>
+        <tr><td>目標到達判定</td><td>54分</td><td><code>target_tracker.yml</code></td></tr>
+        <tr><td>macro(マクロ相関判定)</td><td>毎月8日 23:27頃</td><td><code>macro_signal.yml</code></td></tr>
+        <tr><td>経済指標リマインド</td><td>毎日22:27頃</td><td><code>economic_calendar_reminder.yml</code></td></tr>
         <tr><td>資産相関レポート</td><td>毎週月曜7:00頃</td><td><code>correlation_report.yml</code></td></tr>
-        <tr><td>ダッシュボード更新</td><td>15分おき</td><td><code>dashboard.yml</code></td></tr>
       </tbody>
     </table>
+    <div class="note">
+      <strong>なぜ実行時刻をずらしているか:</strong>
+      各処理は結果を同じデータベースファイル(<code>trading_system.db</code>)に書き込み、
+      リポジトリにコミットして保存しています。このファイルはバイナリ形式のため、
+      2つの処理が同時に書き込むとgitが自動でマージできず、後からコミットした側が丸ごと弾かれ、
+      <strong>その回の検知結果が記録されないまま消えてしまいます</strong>。
+      実際に2026年8月28日、クジラ検知が1件この理由で失われました。
+      現在は「実行時刻を互いに3分以上ずらす」「同じグループの処理は同時に動かない設定にする」
+      「万一弾かれても最新を取り込んで再試行する」の3段構えで防いでいます。
+    </div>
     <div class="note">
       GitHub Actionsのschedule実行は「その時刻ちょうど」に必ず動く保証がなく、GitHub側の負荷状況で
       数十分〜数時間単位で遅れることがあります(無料枠での既知の制約です)。通知が来るのが遅いと感じても、
@@ -238,12 +252,21 @@
   <section>
     <h2>的中率について</h2>
     <p>
-      価格が紐づくシグナル(主にtech・dip)について、発生から約1時間後・約24時間後の価格を自動取得し、
-      方向が当たっていたかを記録しています。ダッシュボードの「的中率」はソース・資産ごとの集計です。
+      各シグナルについて、発生から約1時間後・約24時間後の価格を自動取得し、当たっていたかを記録しています。
+      ダッシュボードには<strong>ソース別</strong>(どのシグナルが効いているか)と
+      <strong>銘柄別</strong>(どの通貨で効いているか)の2つの表を出しています。
+      判断に使うのは基本的にソース別の方です。銘柄別はサンプルが細かく分かれるため、
+      1つ1つのマスの件数がどうしても少なくなります。
+    </p>
+    <p>
+      <strong>「的中」の基準:</strong> 単に方向が合っていただけでは的中に数えません。
+      往復手数料(既定0.3%)を<strong>超えて</strong>動いた場合のみ的中としています。
+      +0.01%の微動まで的中に数えると、実際には手数料負けする動きまで「当たり」になってしまい、
+      的中率が実態より甘く出るためです。
     </p>
     <div class="note">
-      価格変動の方向のみで判定した簡易的な指標です。値幅・手数料・スリッページは考慮していません。
-      サンプル数が少ないうちは参考程度に見てください。
+      値幅の大きさやスリッページまでは考慮していない簡易的な指標です。
+      件数が20件に満たないソースは「参考値」と表示しています。数字が安定するまでは鵜呑みにしないでください。
     </div>
   </section>
 
@@ -288,7 +311,7 @@
       記録後は<code>git push</code>してリポジトリに反映しないと、このダッシュボードには表示されません。
     </p>
     <p>
-      記録した建値・損切りラインは<code>position_monitor.py</code>が15分おきに監視し、
+      記録した建値・損切りラインは<code>position_monitor.py</code>が30分おきに監視し、
       以下のいずれかを検知するとDiscordに通知します(記録した内容を「見張り」に活かす仕組みです):
     </p>
     <ul>
@@ -311,7 +334,10 @@
     </p>
     <ul>
       <li>対象ソース: tech / dip / whale / confluence / macro(全ソース)</li>
-      <li>建値は発生時の価格、損切りラインは既定3%で自動設定</li>
+      <li>建値は発生時の価格、損切りラインは既定3%で自動設定
+        <br><span class="muted">※以前はwhale/conf/macroが発生時の価格を記録しておらず、
+        建値が実際の発生時点とずれていました。現在は全ソースが発生時の価格を記録します。
+        ずれていた期間の仮想ポジション6件は、比較の邪魔になるため削除済みです。</span></li>
       <li>決済は<code>position_monitor.py</code>が兼務: 利確+5%到達・損切りライン到達・
         テクニカルSHORT発生のいずれかで、<strong>人の判断を待たず自動的に決済</strong></li>
       <li>決済価格には<strong>往復手数料(既定0.3%)を織り込み済み</strong>で、成績が
