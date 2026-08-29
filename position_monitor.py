@@ -7,6 +7,7 @@ journal(status='open')に記録されているポジションを監視し、以�
 - 損切りライン(記録時に指定したstop_loss)を割り込んだ
 - 利確目標(既定+5%)に到達した
 - 保有銘柄でcrypto_technicalの新しいSHORT(売り)サインが出た
+- 保有期限(既定72時間)に達した
 
 journal_add.pyで記録した**実ポジション**の場合は、Discordでアラートするのみ
 (売るかどうかは人が判断する)。
@@ -40,6 +41,13 @@ import price_utils
 
 TARGET_PROFIT_PCT = float(os.environ.get("POSITION_TARGET_PROFIT_PCT", "5.0"))
 ALERT_COOLDOWN_HOURS = float(os.environ.get("POSITION_ALERT_COOLDOWN_HOURS", "12"))
+
+# 保有期限。「1〜3日以内に+5%を狙う」という戦略である以上、期限内にどちらにも
+# 到達しなかった時点で手仕舞うところまでが戦略のはず。
+# これが無いと、利確にも損切りにも当たらないポジションが永久に保有され続け、
+# 決済済みデータがいつまでも溜まらないまま「大きく動いたトレードだけ」が
+# 集計対象になって成績が偏る(実測で、条件次第では7割以上が未決着のまま残る)。
+MAX_HOLD_HOURS = float(os.environ.get("POSITION_MAX_HOLD_HOURS", "72"))
 TECH_SIGNAL_LOOKBACK_HOURS = float(os.environ.get("POSITION_TECH_LOOKBACK_HOURS", "2"))
 
 # ペーパートレードの決済価格に往復分の想定手数料を反映し、成績が実態より
@@ -86,7 +94,8 @@ def mark_alerted(state: dict, journal_id: int, alert_type: str):
     state[f"{journal_id}:{alert_type}"] = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
 
 
-def build_alert_message(row, current_price: float, pnl_pct: float, alert_types: list[str]) -> str:
+def build_alert_message(row, current_price: float, pnl_pct: float, alert_types: list[str],
+                        target_profit_pct: float = TARGET_PROFIT_PCT) -> str:
     lines = [f"**📌 保有ポジション通知: {row['asset']}**", ""]
     lines.append(f"建値 ${row['entry_price']:,.4f} → 現在値 ${current_price:,.4f}({pnl_pct:+.2f}%)")
     if row["stop_loss"] is not None:
@@ -94,11 +103,13 @@ def build_alert_message(row, current_price: float, pnl_pct: float, alert_types: 
     lines.append("")
 
     if "take_profit" in alert_types:
-        lines.append(f"🟢 **利確目安(+{TARGET_PROFIT_PCT:.1f}%)に到達しています。**")
+        lines.append(f"🟢 **利確目安(+{target_profit_pct:.1f}%)に到達しています。**")
     if "stop_loss" in alert_types:
         lines.append("🔴 **損切りラインを割り込んでいます。**")
     if "tech_short" in alert_types:
         lines.append("⚠️ この銘柄でテクニカル的に売り(SHORT)サインも出ています。")
+    if "time_exit" in alert_types:
+        lines.append(f"⏱️ 保有期限({MAX_HOLD_HOURS:.0f}時間)に達しました。手仕舞いのご検討を。")
 
     if row["note"]:
         lines.append(f"\nメモ: {row['note']}")
@@ -108,7 +119,8 @@ def build_alert_message(row, current_price: float, pnl_pct: float, alert_types: 
     return "\n".join(lines)
 
 
-def build_paper_close_message(row, market_price: float, fee_adjusted_pnl_pct: float, alert_types: list[str]) -> str:
+def build_paper_close_message(row, market_price: float, fee_adjusted_pnl_pct: float, alert_types: list[str],
+                              target_profit_pct: float = TARGET_PROFIT_PCT) -> str:
     """ペーパートレード(is_paper=1)は人の判断を待たず自動決済するため、
     「ご検討ください」ではなく「決済しました」の報告として通知する。
     損益は往復手数料(既定0.3%)を差し引いた実態に近い値を表示する。"""
@@ -120,11 +132,13 @@ def build_paper_close_message(row, market_price: float, fee_adjusted_pnl_pct: fl
     lines.append("")
 
     if "take_profit" in alert_types:
-        lines.append(f"🟢 利確目安(+{TARGET_PROFIT_PCT:.1f}%)到達で決済")
+        lines.append(f"🟢 利確目安(+{target_profit_pct:.1f}%)到達で決済")
     if "stop_loss" in alert_types:
         lines.append("🔴 損切りライン到達で決済")
     if "tech_short" in alert_types:
         lines.append("⚠️ テクニカル売りサイン発生で決済")
+    if "time_exit" in alert_types:
+        lines.append(f"⏱️ 保有期限({MAX_HOLD_HOURS:.0f}時間)到達で決済")
 
     lines.append("")
     lines.append(
@@ -179,7 +193,12 @@ def main():
 
         alert_types = []
 
-        if pnl_pct >= TARGET_PROFIT_PCT and not was_recently_alerted(state, row["id"], "take_profit", ALERT_COOLDOWN_HOURS):
+        # 利確目標はポジションごとに持つ(銘柄の値動きの荒さに応じて損切り幅を変えており、
+        # 損切りと利確の比率を保つため利確目標も銘柄ごとに変わる)。
+        # 記録が無い古いポジションや手動記録分は従来どおりの既定値を使う。
+        target_profit_pct = row["target_pct"] if row["target_pct"] is not None else TARGET_PROFIT_PCT
+
+        if pnl_pct >= target_profit_pct and not was_recently_alerted(state, row["id"], "take_profit", ALERT_COOLDOWN_HOURS):
             alert_types.append("take_profit")
 
         if row["stop_loss"] is not None:
@@ -193,6 +212,11 @@ def main():
         if row["direction"] == "LONG" and has_recent_short_signal(asset, TECH_SIGNAL_LOOKBACK_HOURS):
             if not was_recently_alerted(state, row["id"], "tech_short", ALERT_COOLDOWN_HOURS):
                 alert_types.append("tech_short")
+
+        held_hours = (datetime.now(timezone.utc).replace(tzinfo=None)
+                      - datetime.fromisoformat(row["timestamp"])).total_seconds() / 3600
+        if held_hours >= MAX_HOLD_HOURS and not was_recently_alerted(state, row["id"], "time_exit", ALERT_COOLDOWN_HOURS):
+            alert_types.append("time_exit")
 
         if alert_types:
             for alert_type in alert_types:
@@ -210,11 +234,11 @@ def main():
                     fee_adjusted_pnl_pct = (row["entry_price"] - fee_adjusted_exit) / row["entry_price"] * 100
 
                 db_utils.close_journal_entry(row["id"], fee_adjusted_exit)
-                send_discord_notification(build_paper_close_message(row, current_price, fee_adjusted_pnl_pct, alert_types))
+                send_discord_notification(build_paper_close_message(row, current_price, fee_adjusted_pnl_pct, alert_types, target_profit_pct))
                 print(f"[ペーパー決済] {asset} (id={row['id']}, source={row['source']}): "
                       f"{','.join(alert_types)} / 手数料考慮後損益{fee_adjusted_pnl_pct:+.2f}%(市場{pnl_pct:+.2f}%)")
             else:
-                send_discord_notification(build_alert_message(row, current_price, pnl_pct, alert_types))
+                send_discord_notification(build_alert_message(row, current_price, pnl_pct, alert_types, target_profit_pct))
                 print(f"[通知] {asset} (id={row['id']}): {','.join(alert_types)} / 含み損益{pnl_pct:+.2f}%")
         else:
             kind = "ペーパー" if row["is_paper"] else "実"

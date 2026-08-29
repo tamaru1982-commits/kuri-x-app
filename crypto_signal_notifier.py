@@ -45,7 +45,12 @@ COINS = [
 ]
 
 VS_CURRENCY = "usd"
-DAYS = 7
+
+# CoinGeckoは日数で足の粒度が変わる(2〜90日=1時間足、91日以上=日足)。
+# 以前はDAYS=7だったため1時間足で、SMA9/21は「9時間平均と21時間平均」を意味しており、
+# 「1〜3日以内に+5%」という運用の時間軸に対して短すぎた(クロスが週7.7回/銘柄も発生)。
+# 日足に変更し、SMA9/21を本来想定される「9日平均と21日平均」にする。
+DAYS = 120
 SMA_SHORT = 9
 SMA_LONG = 21
 RSI_PERIOD = 14
@@ -65,17 +70,22 @@ COOLDOWN_MINUTES = int(os.environ.get("CRYPTO_COOLDOWN_MINUTES", "180"))  # 同�
 # CONFIRM_CROSS=0 にすると保留せずクロス検知した回にそのまま通知する。
 CONFIRM_CROSS = os.environ.get("CRYPTO_CONFIRM_CROSS", "1") not in ("0", "false", "False")
 
-# クロスを直近何本ぶんさかのぼって探すか。
+# クロスを直近何本(=日足なので何日)ぶんさかのぼって探すか。
 # 直近2点だけを見る実装だと、GitHub Actionsの実行が遅延・欠落した回にクロスが
 # 起きていた場合、そのクロスを二度と検知できない(トレンド継続で判定していた頃は
 # 次の実行で拾えたが、イベントで判定する以上は取りこぼしがそのまま欠損になる)。
-# 同じクロスを重複通知することはクールダウンが防ぐため、幅を持たせる方が安全。
-CROSS_LOOKBACK = int(os.environ.get("CRYPTO_CROSS_LOOKBACK", "3"))
+# 同じクロスを何度も通知しないよう、処理済みのクロスは発生時刻で識別して除外する
+# (クールダウンだけでは、期限が切れるたびに同じクロスを再通知してしまう)。
+CROSS_LOOKBACK = int(os.environ.get("CRYPTO_CROSS_LOOKBACK", "2"))
 STATE_FILE = Path("crypto_signal_state.json")
 
 # 押し目シグナル: トレンド方向(SMA)に関わらず、RSIが売られすぎ圏に入ったこと自体を
 # 現物の買い候補として知らせる(トレンドフォローのLONG/SHORTとは独立した別軸の指標)
 DIP_RSI_THRESHOLD = float(os.environ.get("DIP_RSI_THRESHOLD", str(RSI_OVERSOLD)))
+
+# 押し目シグナルは日足のRSI反転を見るため、同じ足で何度も鳴らないよう
+# 通常より長いクールダウン(既定24時間=1日1回まで)にする。
+DIP_COOLDOWN_MINUTES = int(os.environ.get("DIP_COOLDOWN_MINUTES", "1440"))
 SOURCE_DIP = "crypto_dip"
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
@@ -132,6 +142,24 @@ def compute_sma(df: pd.DataFrame, short: int, long: int) -> pd.DataFrame:
     return df
 
 
+def compute_daily_volatility_pct(df: pd.DataFrame, lookback: int = 30) -> float | None:
+    """日次の変動率(対数リターンの標準偏差, %)を求める。
+
+    銘柄ごとに損切り幅を決めるために使う。DAYSが日足の粒度になっているため、
+    そのままの足の標準偏差が日次変動率になる。
+    この値はstate経由でpaper_trader.pyにも渡され、追加のAPI呼び出しなしに
+    全スクリプトが同じ基準で損切り幅を決められるようにしている。
+    """
+    import numpy as np
+
+    prices = df["price"].tail(lookback + 1).to_numpy()
+    if len(prices) < 5 or (prices <= 0).any():
+        return None
+    returns = np.diff(np.log(prices))
+    vol = float(np.std(returns) * 100)
+    return vol if vol > 0 else None
+
+
 def compute_rsi(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
     df = df.copy()
     delta = df["price"].diff()
@@ -166,24 +194,29 @@ def compute_rsi(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
 
 # ============ シグナル判定 ============
 
-def detect_recent_cross(df: pd.DataFrame, lookback: int) -> tuple[bool, bool]:
-    """直近lookback本ぶんの区間にSMAのクロスがあったかを返す (golden, dead)。
+def detect_recent_cross(df: pd.DataFrame, lookback: int) -> tuple[str | None, str | None]:
+    """直近lookback本ぶんの区間で最後に起きたSMAクロスを (方向, 発生時刻) で返す。
 
-    実行の遅延・欠落でクロスを取りこぼさないよう幅を持たせている。
-    区間内に複数回クロスした場合は、最後に起きたクロスの向きを採用する
+    実行の遅延・欠落でクロスを取りこぼさないよう検知に幅を持たせているが、
+    幅を持たせると同じクロスが複数回の実行で検知されることになる。
+    そのままだとクールダウンが切れるたびに同じクロスを再通知してしまい、
+    「同じ相場を何度もシグナル化する」という以前と同じ問題が再発するため、
+    どのクロスなのかを識別できるよう発生時刻も併せて返す。
+
+    区間内に複数回クロスした場合は最後の向きを採用する
     (往復した場合、現時点で意味を持つのは直近の向きのため)。
     """
-    golden = dead = False
+    direction = cross_at = None
     window = df.iloc[-(lookback + 1):]
     for i in range(1, len(window)):
         prev, now = window.iloc[i - 1], window.iloc[i]
         if any(pd.isna(v) for v in (prev["sma_short"], prev["sma_long"], now["sma_short"], now["sma_long"])):
             continue
         if prev["sma_short"] <= prev["sma_long"] and now["sma_short"] > now["sma_long"]:
-            golden, dead = True, False
+            direction, cross_at = "LONG", str(window.index[i])
         elif prev["sma_short"] >= prev["sma_long"] and now["sma_short"] < now["sma_long"]:
-            golden, dead = False, True
-    return golden, dead
+            direction, cross_at = "SHORT", str(window.index[i])
+    return direction, cross_at
 
 
 def judge_signal(df: pd.DataFrame) -> dict:
@@ -196,7 +229,9 @@ def judge_signal(df: pd.DataFrame) -> dict:
     if pd.isna(sma_short_now) or pd.isna(sma_long_now) or pd.isna(rsi_now):
         return {"signal": "データ不足", "price": price_now, "rsi": rsi_now}
 
-    golden_cross, dead_cross = detect_recent_cross(df, CROSS_LOOKBACK)
+    cross_dir, cross_at = detect_recent_cross(df, CROSS_LOOKBACK)
+    golden_cross = cross_dir == "LONG"
+    dead_cross = cross_dir == "SHORT"
     trend_up = sma_short_now > sma_long_now
     trend_down = sma_short_now < sma_long_now
 
@@ -217,12 +252,13 @@ def judge_signal(df: pd.DataFrame) -> dict:
         "sma_short": sma_short_now, "sma_long": sma_long_now,
         "golden_cross": golden_cross, "dead_cross": dead_cross,
         "trend_up": trend_up, "trend_down": trend_down,
+        "cross_at": cross_at,
     }
 
 
 # ============ 通知 ============
 
-def build_discord_message(results: list) -> str:
+def build_discord_message(results: list, volatility: dict | None = None) -> str:
     now_str = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M")
     lines = [f"**🪙 仮想通貨シグナル通知 ({now_str})**", ""]
 
@@ -258,7 +294,9 @@ def build_discord_message(results: list) -> str:
         lines.append(f"{emoji} **{symbol}**: {signal} | 価格 {price_str} | RSI {rsi_str}")
 
         if signal in ("LONG", "SHORT") and price is not None:
-            risk_line = risk_utils.format_risk_line(price, signal)
+            vol = (volatility or {}).get(symbol)
+            stop_pct = risk_utils.stop_loss_pct_for_volatility(vol)
+            risk_line = risk_utils.format_risk_line(price, signal, stop_pct)
             if risk_line:
                 lines.append(f"　{risk_line}")
 
@@ -279,7 +317,8 @@ def build_awakening_payload(dip_signals: list) -> dict:
     fields = []
     for d in dip_signals:
         value_lines = [f"RSI {d['prev_rsi']:.0f} → {d['rsi']:.0f}(反転上昇)", f"価格 ${d['price']:,.2f}"]
-        risk_line = risk_utils.format_risk_line(d["price"], "LONG")
+        stop_pct = risk_utils.stop_loss_pct_for_volatility(d.get("volatility"))
+        risk_line = risk_utils.format_risk_line(d["price"], "LONG", stop_pct)
         if risk_line:
             value_lines.append(risk_line)
         fields.append({"name": f"🔴 {d['symbol']}", "value": "\n".join(value_lines), "inline": False})
@@ -329,15 +368,17 @@ def main():
     db_utils.init_db()
     state = load_state()
     confirm_state = state.setdefault("confirm", {})
-    dip_rsi_state = state.setdefault("dip_rsi", {})
 
     # 旧形式({"last_signal":..,"count":N})の残骸を掃除する。
     # 現在は{"pending":方向}のみを使うため、そのままだと解除されず残り続ける。
-    for symbol in [s for s, v in confirm_state.items() if not isinstance(v, dict) or "pending" not in v]:
+    for symbol in [s for s, v in confirm_state.items() if not isinstance(v, dict) or not ({"pending", "handled_cross_at"} & set(v))]:
         confirm_state.pop(symbol, None)
     # さらに古い版がstate直下に書いていた銘柄キーも掃除する
-    for key in [k for k in state if k not in ("confirm", "dip_rsi")]:
+    for key in [k for k in state if k not in ("confirm", "volatility")]:
         state.pop(key, None)
+
+    # 銘柄ごとの日次変動率。paper_trader.pyが損切り幅を決めるのに使う
+    volatility_state = state.setdefault("volatility", {})
     results = []
     dip_signals = []
     any_to_notify = False
@@ -349,27 +390,43 @@ def main():
             df = fetch_price_history(coin_id, VS_CURRENCY, DAYS)
             df = compute_sma(df, SMA_SHORT, SMA_LONG)
             df = compute_rsi(df, RSI_PERIOD)
+
+            # 損切り幅の算出に使うため、銘柄ごとの日次変動率を毎回更新しておく
+            vol = compute_daily_volatility_pct(df)
+            if vol is not None:
+                volatility_state[symbol] = round(vol, 3)
             result = judge_signal(df)
             raw_signal = result["signal"]
 
             # クロス検知 → 次回も同じ側にいれば確定、という2段階で判定する。
             # 確定した方向をfire_signalに入れる(Noneなら今回は通知しない)。
             fire_signal = None
-            pending_dir = (confirm_state.get(symbol) or {}).get("pending")
+            sym_state = confirm_state.get(symbol) or {}
+            pending_dir = sym_state.get("pending")
+            pending_at = sym_state.get("cross_at")
+            handled_at = sym_state.get("handled_cross_at")
+            cross_at = result.get("cross_at")
 
-            # 今回検知したクロス、または前回保留したクロスを候補とする。
-            # (検知に幅を持たせているため、同じクロスが複数回の実行で検知されうる。
-            #  その場合も2回目の観測を「確認」として扱い、確定を先送りしない)
-            candidate = raw_signal if raw_signal in ("LONG", "SHORT") else pending_dir
+            # 検知に幅を持たせている以上、同じクロスが複数回の実行で検知される。
+            # 一度処理したクロスは発生時刻で識別してスキップしないと、
+            # クールダウンが切れるたびに同じクロスを再通知してしまう。
+            if raw_signal in ("LONG", "SHORT") and cross_at and cross_at == handled_at:
+                raw_signal = "様子見"
+
+            # 今回検知したクロス、または前回保留したクロスを候補とする
+            if raw_signal in ("LONG", "SHORT"):
+                candidate, candidate_at = raw_signal, cross_at
+            else:
+                candidate, candidate_at = pending_dir, pending_at
 
             if candidate:
                 if not CONFIRM_CROSS:
                     fire_signal = candidate
-                    confirm_state.pop(symbol, None)
-                elif pending_dir == candidate:
-                    # 2回目の観測。まだ同じ側にいれば確定、押し戻されていれば見送り
+                    confirm_state[symbol] = {"handled_cross_at": candidate_at}
+                elif pending_dir == candidate and pending_at == candidate_at:
+                    # 同じクロスの2回目の観測。まだ同じ側にいれば確定、押し戻されていれば見送り
                     still_same_side = result.get("trend_up") if candidate == "LONG" else result.get("trend_down")
-                    confirm_state.pop(symbol, None)
+                    confirm_state[symbol] = {"handled_cross_at": candidate_at}
                     if still_same_side:
                         fire_signal = candidate
                     else:
@@ -377,7 +434,8 @@ def main():
                         result["signal"] = f"様子見({candidate}クロスが続かず見送り)"
                 else:
                     # 初回検知。次の実行でまだ同じ側にいるかを見てから判断する
-                    confirm_state[symbol] = {"pending": candidate}
+                    confirm_state[symbol] = {"pending": candidate, "cross_at": candidate_at,
+                                             "handled_cross_at": handled_at}
                     print(f"{symbol}: {candidate}クロス検知(次回も同じ側なら確定)")
                     result["signal"] = f"様子見(クロス確認中→{candidate})"
 
@@ -391,25 +449,26 @@ def main():
                     any_to_notify = True
 
             # 押し目チェック: 単に「売られすぎ圏(RSI<=閾値)」なだけでなく、
-            # 前回チェック時よりRSIが上向いた(反転の初動)場合のみ発火させる。
+            # RSIが上向いた(反転の初動)場合のみ発火させる。
             # 「落ちてるナイフ」(下げ止まっていないのに安いというだけで飛びつく)を避けるため。
+            #
+            # 比較対象は「前回実行時のRSI」ではなく「1本前の足のRSI」を使う。
+            # 日足に変更したことで、30分前の実行時点と比べてもRSIはほとんど動かず、
+            # 実行間隔に依存した不安定な判定になってしまうため。
             rsi_val = result.get("rsi")
             price_val = result.get("price")
-            if rsi_val is not None and pd.notna(rsi_val) and price_val is not None:
-                prev_rsi = dip_rsi_state.get(symbol)
-                is_reversal = (
-                    rsi_val <= DIP_RSI_THRESHOLD
-                    and prev_rsi is not None
-                    and rsi_val > prev_rsi
-                )
+            prev_rsi = df["rsi"].iloc[-2] if len(df) >= 2 else None
+            if (rsi_val is not None and pd.notna(rsi_val) and price_val is not None
+                    and prev_rsi is not None and pd.notna(prev_rsi)):
+                is_reversal = rsi_val <= DIP_RSI_THRESHOLD and rsi_val > prev_rsi
                 if is_reversal:
-                    if db_utils.was_recently_notified(SOURCE_DIP, symbol, "LONG", COOLDOWN_MINUTES):
+                    if db_utils.was_recently_notified(SOURCE_DIP, symbol, "LONG", DIP_COOLDOWN_MINUTES):
                         print(f"{symbol}: 押し目反転候補(RSI{prev_rsi:.0f}→{rsi_val:.0f}) だがクールダウン中のためスキップ")
                     else:
                         db_utils.log_signal(SOURCE_DIP, symbol, "LONG", price_val,
                                              message=f"押し目反転 RSI{prev_rsi:.0f}→{rsi_val:.0f}")
-                        dip_signals.append({"symbol": symbol, "price": price_val, "rsi": rsi_val, "prev_rsi": prev_rsi})
-                dip_rsi_state[symbol] = rsi_val  # 次回比較のため常に更新
+                        dip_signals.append({"symbol": symbol, "price": price_val, "rsi": rsi_val,
+                                            "prev_rsi": prev_rsi, "volatility": volatility_state.get(symbol)})
 
             results.append({"symbol": symbol, "result": result})
             print(f"{symbol}: {result['signal']}")
@@ -422,7 +481,7 @@ def main():
     save_state(state)
 
     if any_to_notify:
-        message = build_discord_message(results)
+        message = build_discord_message(results, volatility_state)
         send_discord_notification(message)
     else:
         print("新規のLONG/SHORTシグナルがないため、通知はスキップしました。")

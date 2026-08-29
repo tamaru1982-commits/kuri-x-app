@@ -87,6 +87,9 @@ def init_db():
     journal_columns = {
         "is_paper": "INTEGER DEFAULT 0",  # 1ならpaper_trader.pyが自動記録した仮想トレード
         "source": "TEXT",                 # ペーパートレードの場合、発生元シグナルソース
+        # 利確目標(%)。銘柄の値動きの荒さに応じて損切り幅を変えるようにしたため、
+        # 利確目標も一律ではなくポジションごとに保持する必要がある
+        "target_pct": "REAL",
     }
     for col, col_type in journal_columns.items():
         if col not in existing_journal_columns:
@@ -267,13 +270,14 @@ def get_target_hit_summary(hours: int = 24 * 30) -> list[dict]:
 
 def add_journal_entry(asset: str, direction: str, entry_price: float, size: float,
                        stop_loss: float | None, note: str,
-                       is_paper: bool = False, source: str | None = None) -> int:
+                       is_paper: bool = False, source: str | None = None,
+                       target_pct: float | None = None) -> int:
     conn = get_conn()
     cur = conn.execute(
-        "INSERT INTO journal (timestamp, asset, direction, entry_price, size, stop_loss, note, is_paper, source) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO journal (timestamp, asset, direction, entry_price, size, stop_loss, note, is_paper, source, target_pct) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (utc_now_iso(), asset, direction, entry_price, size, stop_loss, note,
-         1 if is_paper else 0, source),
+         1 if is_paper else 0, source, target_pct),
     )
     conn.commit()
     entry_id = cur.lastrowid
