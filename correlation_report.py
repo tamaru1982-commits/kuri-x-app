@@ -17,17 +17,20 @@ import requests
 import pandas as pd
 import yfinance as yf
 
+import price_utils
+
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 COINGECKO_BASE = "https://api.coingecko.com/api/v3"
 
 LOOKBACK_DAYS = 90
 
-# 仮想通貨(CoinGecko id)
+# 仮想通貨は監視対象の全銘柄を対象にする。
+# 以前はBTC/ETH/SOL/XRPの4銘柄だけを直書きしており、後から追加した6銘柄が
+# 相関の集計から漏れていた。「別々の資産に分けたつもりが同じ方向に賭けていた」
+# ことに気づくためのレポートなのに、候補の6割が見えていない状態だった。
 CRYPTO_ASSETS = [
-    {"id": "bitcoin", "label": "BTC"},
-    {"id": "ethereum", "label": "ETH"},
-    {"id": "solana", "label": "SOL"},
-    {"id": "ripple", "label": "XRP"},
+    {"id": coin_id, "label": symbol}
+    for symbol, coin_id in price_utils.SYMBOL_TO_COINGECKO_ID.items()
 ]
 
 # 伝統資産(yfinanceティッカー)
@@ -45,8 +48,9 @@ HIGH_CORRELATION_THRESHOLD = 0.7
 def fetch_crypto_series(coin_id: str) -> pd.Series:
     url = f"{COINGECKO_BASE}/coins/{coin_id}/market_chart"
     params = {"vs_currency": "usd", "days": LOOKBACK_DAYS, "interval": "daily"}
-    resp = requests.get(url, params=params, timeout=15)
-    resp.raise_for_status()
+    # 銘柄数が増えたぶんレート制限に当たりやすいため、共通のリトライ処理を使う。
+    # ここで落ちるとその銘柄が相関表から静かに消えてしまう。
+    resp = price_utils._get_with_retry(url, params)
     prices = resp.json().get("prices", [])
     df = pd.DataFrame(prices, columns=["ts", "price"])
     df["date"] = pd.to_datetime(df["ts"], unit="ms").dt.date
@@ -81,33 +85,75 @@ def build_price_matrix() -> pd.DataFrame:
             print(f"[エラー] {asset['label']} 取得失敗: {e}")
 
     df = pd.DataFrame(series_dict)
-    df = df.sort_index().ffill().dropna()
+    # 仮想通貨は24時間365日動くが、伝統資産は平日しか値がつかない。
+    # ffill()で週末を金曜終値で埋めると、その日の伝統資産の変化率が0になり
+    # (実測で全体の31%)、仮想通貨との相関が実際より弱く出てしまう。
+    # 両方が実際に動いた日(=平日)だけで相関を取る。
+    df = df.sort_index().dropna()
     return df
 
 
 def build_message(corr: pd.DataFrame) -> str:
+    """レポートを組み立てる。
+
+    監視対象の仮想通貨はほぼ全ペアが高相関になるため(実測で17ペアが0.7超)、
+    該当ペアを列挙するだけでは読めないうえ、肝心の「分散できていない」という
+    結論が埋もれてしまう。そこで
+      1. 仮想通貨同士の平均相関(=分散が効いているかの要約)
+      2. 特に連動が強い上位ペア
+      3. 仮想通貨と伝統資産の関係(相場全体の地合いを読む手がかり)
+    の順に整理して伝える。
+    """
     now_str = datetime.now().strftime("%Y-%m-%d")
     lines = [f"**🔗 資産相関レポート ({now_str}, 過去{LOOKBACK_DAYS}日)**", ""]
 
-    labels = list(corr.columns)
-    high_corr_pairs = []
+    crypto = [a["label"] for a in CRYPTO_ASSETS if a["label"] in corr.columns]
+    trad = [a["label"] for a in TRADITIONAL_ASSETS if a["label"] in corr.columns]
 
-    for i, a in enumerate(labels):
-        for b in labels[i + 1:]:
-            value = corr.loc[a, b]
-            if pd.notna(value) and abs(value) >= HIGH_CORRELATION_THRESHOLD:
-                high_corr_pairs.append((a, b, value))
+    def pairs_of(xs, ys=None):
+        out = []
+        if ys is None:
+            for i, a in enumerate(xs):
+                for b in xs[i + 1:]:
+                    v = corr.loc[a, b]
+                    if pd.notna(v):
+                        out.append((a, b, v))
+        else:
+            for a in xs:
+                for b in ys:
+                    v = corr.loc[a, b]
+                    if pd.notna(v):
+                        out.append((a, b, v))
+        return out
 
-    if high_corr_pairs:
-        lines.append(f"⚠️ **相関が高いペア(|相関|≧{HIGH_CORRELATION_THRESHOLD})**")
-        for a, b, value in sorted(high_corr_pairs, key=lambda x: -abs(x[2])):
-            direction = "正の相関(同方向に動きやすい)" if value > 0 else "負の相関(逆方向に動きやすい)"
-            lines.append(f"　・{a} × {b}: {value:+.2f} ({direction})")
-    else:
-        lines.append("現時点で強い相関(|相関|≧0.7)のペアはありません。")
+    # 1. 仮想通貨同士がどれだけ一体で動いているか
+    cc = pairs_of(crypto)
+    if cc:
+        avg = sum(v for _, _, v in cc) / len(cc)
+        high = sum(1 for _, _, v in cc if abs(v) >= HIGH_CORRELATION_THRESHOLD)
+        lines.append(f"**仮想通貨同士の平均相関: {avg:+.2f}**({len(cc)}ペア中{high}ペアが0.7超)")
+        if avg >= 0.6:
+            lines.append("⚠️ 銘柄を分けても値動きはほぼ同じです。**複数銘柄を同時に持っても分散になりません。**")
+        lines.append("")
+        lines.append("特に連動が強い組み合わせ:")
+        for a, b, v in sorted(cc, key=lambda x: -abs(x[2]))[:5]:
+            lines.append(f"　・{a} × {b}: {v:+.2f}")
+        lines.append("")
 
-    lines.append("")
-    lines.append("_※過去90日の日次データに基づく統計的な相関です。将来も同じ関係が続くとは限りません。_")
+    # 2. 仮想通貨と伝統資産(地合いを読む手がかりになる)
+    ct = pairs_of(crypto, trad)
+    if ct:
+        lines.append("**伝統資産との関係(絶対値が大きい順に3件)**")
+        for a, b, v in sorted(ct, key=lambda x: -abs(x[2]))[:3]:
+            direction = "同方向に動きやすい" if v > 0 else "逆方向に動きやすい"
+            lines.append(f"　・{a} × {b}: {v:+.2f}({direction})")
+        strong = [p for p in ct if abs(p[2]) >= HIGH_CORRELATION_THRESHOLD]
+        if not strong:
+            lines.append("　いずれも0.7未満で、仮想通貨は伝統資産とは概ね独立して動いています。")
+        lines.append("")
+
+    lines.append(f"_※過去{LOOKBACK_DAYS}日のうち、伝統資産にも値がつく平日の日次データに基づく統計的な相関です。_")
+    lines.append("_※将来も同じ関係が続くとは限りません。_")
     return "\n".join(lines)
 
 

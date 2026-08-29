@@ -48,12 +48,27 @@ jobs:
           # MACRO_COOLDOWN_MINUTES: ${{ secrets.MACRO_COOLDOWN_MINUTES }}
         run: python macro_signal_notifier.py
 
+      # economic_calendar_reminder.py が「NFP発表前の過去傾向」を出すために
+      # nfp_patterns.json を読むが、これを生成する仕組みがどこにも無かったため
+      # ファイルが存在せず、その節が一度も表示されていなかった。
+      # FRED_API_KEY を使う月次ジョブはここだけなので、あわせて生成する。
+      - name: NFP過去パターンを再集計
+        # ここはマクロシグナル本体とは独立した補助集計なので、失敗しても
+        # 後続のコミットまで巻き添えにしないよう続行させる
+        continue-on-error: true
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python nfp_pattern_analysis.py
+
       - name: DBをコミット
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add trading_system.db
-          git diff --staged --quiet || git commit -m "update macro signal log"
+          # 上の集計が失敗するとファイルが生成されず、存在しないパスへのgit addで
+          # コミット手順ごと落ちてマクロシグナルの記録まで失われるため存在確認する
+          if [ -f nfp_patterns.json ]; then git add nfp_patterns.json; fi
+          git diff --staged --quiet || git commit -m "update macro signal log and NFP patterns"
           # 直列化していても手動実行や手元からのpushと重なることはあるため、
           # 弾かれたらリモートを取り込んで再試行する(取り込めない場合は
           # 黙って失うより落とした方が安全なのでエラー終了する)
