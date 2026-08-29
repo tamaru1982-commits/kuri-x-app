@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>シグナル運用ループ</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    max-width: 720px; margin: 0 auto; padding: 16px 16px 40px;
+    background: #0f1115; color: #e6e6e6;
+    line-height: 1.7;
+  }
+  a { color: #4f8cff; }
+  .back-link { display: inline-block; margin-bottom: 18px; font-size: 0.85rem; }
+  h1 { font-size: 1.2rem; margin-bottom: 6px; }
+  .lede { color: #8a8f98; font-size: 0.85rem; max-width: 56ch; margin: 0 0 24px; }
+
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 10px 20px; margin-bottom: 28px;
+    font-size: 0.78rem; color: #8a8f98;
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .dot.auto { background: #4f8cff; }
+  .dot.manual { background: #f0c419; }
+
+  figure { margin: 0 0 36px; }
+  .loop-svg { display: block; width: 100%; max-width: 380px; height: auto; margin: 0 auto; }
+  figcaption { text-align: center; color: #8a8f98; font-size: 0.78rem; margin-top: 12px; }
+
+  section { margin-bottom: 26px; }
+  .stage {
+    display: grid; grid-template-columns: 44px 1fr; gap: 14px;
+    padding: 18px 0; border-top: 1px solid #2a2d34;
+  }
+  .stage:first-of-type { border-top: none; }
+  .num {
+    font-weight: 700; font-size: 0.95rem; width: 34px; height: 34px;
+    border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    border: 1.5px solid transparent;
+  }
+  .stage.auto .num { color: #4f8cff; background: rgba(79,140,255,0.12); border-color: #4f8cff; }
+  .stage.manual .num { color: #f0c419; background: rgba(240,196,25,0.12); border-color: #f0c419; }
+
+  .stage-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+  .stage h2 { font-size: 0.98rem; font-weight: 700; margin: 0; border: none; padding: 0; }
+  .tag {
+    font-size: 0.65rem; letter-spacing: 0.04em; padding: 2px 8px;
+    border-radius: 999px; font-weight: 500;
+  }
+  .stage.auto .tag { color: #4f8cff; background: rgba(79,140,255,0.12); }
+  .stage.manual .tag { color: #f0c419; background: rgba(240,196,25,0.12); }
+
+  .stage p { margin: 0 0 8px; color: #8a8f98; font-size: 0.88rem; }
+  .stage ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 5px; }
+  .stage li { font-size: 0.85rem; padding-left: 14px; position: relative; }
+  .stage li::before {
+    content: ""; position: absolute; left: 0; top: 0.6em;
+    width: 5px; height: 5px; border-radius: 50%; background: #2a2d34;
+  }
+  code {
+    font-family: ui-monospace, monospace; font-size: 0.86em;
+    background: #1a1d24; border: 1px solid #2a2d34; border-radius: 4px; padding: 0.1em 0.4em;
+  }
+  .callout { margin-top: 8px; font-size: 0.85rem; color: #f87171; }
+  .callout.ok { color: #4ade80; }
+
+  .examples { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .example {
+    padding: 10px 12px; background: #1a1d24; border: 1px solid #2a2d34;
+    border-left: 3px solid #2a2d34; border-radius: 6px;
+  }
+  .stage.auto .example { border-left-color: #4f8cff; }
+  .stage.manual .example { border-left-color: #f0c419; }
+  .example-label {
+    font-size: 0.65rem; letter-spacing: 0.04em; text-transform: uppercase;
+    color: #8a8f98; margin-bottom: 5px;
+  }
+  .example-msg { font-family: ui-monospace, monospace; font-size: 0.78rem; margin-bottom: 5px; word-break: break-word; }
+  .example-verdict { font-size: 0.82rem; color: #8a8f98; }
+
+  .foot { margin-top: 36px; padding-top: 16px; border-top: 1px solid #2a2d34; font-size: 0.78rem; color: #8a8f98; }
+</style>
+</head>
+<body>
+  <a class="back-link" href="about.html">← このアプリについて に戻る</a>
+  <h1>🔄 検知 → 購入 → 監視 → 売却 → 検証、そしてまた検知へ</h1>
+  <p class="lede">
+    自動売買はしません。「機械が見張って知らせる」部分と「人が判断して動く」部分が
+    交互に並ぶループです。まず全体の形を見て、そのあと各段階の中身を確認してください。
+  </p>
+
+  <div class="legend">
+    <span><span class="dot auto"></span>自動(GitHub Actions)</span>
+    <span><span class="dot manual"></span>手動(あなたの操作)</span>
+  </div>
+
+  <figure>
+    <svg class="loop-svg" viewBox="0 0 480 460" role="img" aria-label="検知・購入・監視・売却・検証の5段階が円環状につながり、検証の結果が次の検知の判断材料として戻っていく様子を示す図">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"></path>
+        </marker>
+        <marker id="arrowMuted" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor" opacity="0.55"></path>
+        </marker>
+      </defs>
+
+      <path d="M 118.8,158.1 Q 123.9,80.3 199.6,99.4" fill="none" stroke="currentColor" stroke-opacity="0.55"
+            stroke-width="2" stroke-dasharray="2 6" stroke-linecap="round" marker-end="url(#arrowMuted)"></path>
+      <text x="115" y="70" font-size="12" fill="currentColor" opacity="0.65">精度データが</text>
+      <text x="115" y="86" font-size="12" fill="currentColor" opacity="0.65">次の判断材料に</text>
+
+      <line x1="280.5" y1="99.4" x2="361.3" y2="158.1" stroke="currentColor" stroke-width="2" marker-end="url(#arrow)"></line>
+      <line x1="386.3" y1="235.1" x2="355.3" y2="330.0" stroke="currentColor" stroke-width="2" marker-end="url(#arrow)"></line>
+      <line x1="289.9" y1="377.6" x2="190.1" y2="377.6" stroke="currentColor" stroke-width="2" marker-end="url(#arrow)"></line>
+      <line x1="124.7" y1="330.0" x2="93.8" y2="235.1" stroke="currentColor" stroke-width="2" marker-end="url(#arrow)"></line>
+
+      <path d="M 378,363 A 34,34 0 1 1 378,393" fill="none" stroke="#4f8cff" stroke-width="2" marker-end="url(#arrow)"></path>
+      <text x="418" y="382" font-size="11" fill="#4f8cff">30分毎</text>
+
+      <circle cx="240" cy="70" r="42" fill="rgba(79,140,255,0.12)" stroke="#4f8cff" stroke-width="2"></circle>
+      <text x="240" y="77" text-anchor="middle" font-weight="700" font-size="20" fill="#4f8cff">1</text>
+      <text x="240" y="30" text-anchor="middle" font-weight="700" font-size="14" fill="currentColor">検知</text>
+
+      <circle cx="401.7" cy="187.5" r="42" fill="rgba(240,196,25,0.12)" stroke="#f0c419" stroke-width="2"></circle>
+      <text x="401.7" y="194.5" text-anchor="middle" font-weight="700" font-size="20" fill="#f0c419">2</text>
+      <text x="452" y="175" text-anchor="start" font-weight="700" font-size="14" fill="currentColor">購入</text>
+
+      <circle cx="339.9" cy="377.6" r="42" fill="rgba(79,140,255,0.12)" stroke="#4f8cff" stroke-width="2"></circle>
+      <text x="339.9" y="384.6" text-anchor="middle" font-weight="700" font-size="20" fill="#4f8cff">3</text>
+      <text x="339.9" y="440" text-anchor="middle" font-weight="700" font-size="14" fill="currentColor">監視</text>
+
+      <circle cx="140.1" cy="377.6" r="42" fill="rgba(240,196,25,0.12)" stroke="#f0c419" stroke-width="2"></circle>
+      <text x="140.1" y="384.6" text-anchor="middle" font-weight="700" font-size="20" fill="#f0c419">4</text>
+      <text x="140.1" y="440" text-anchor="middle" font-weight="700" font-size="14" fill="currentColor">売却</text>
+
+      <circle cx="78.3" cy="187.5" r="42" fill="rgba(79,140,255,0.12)" stroke="#4f8cff" stroke-width="2"></circle>
+      <text x="78.3" y="194.5" text-anchor="middle" font-weight="700" font-size="20" fill="#4f8cff">5</text>
+      <text x="28" y="175" text-anchor="end" font-weight="700" font-size="14" fill="currentColor">検証</text>
+    </svg>
+    <figcaption>5段階がループする全体図。③監視は条件を満たすまで30分毎に自分自身を繰り返し、⑤検証の結果は点線で①検知の判断材料へ戻る。</figcaption>
+  </figure>
+
+  <section>
+
+    <div class="stage auto">
+      <div class="num">1</div>
+      <div>
+        <div class="stage-head"><h2>シグナル検知</h2><span class="tag">自動・常時</span></div>
+        <p>4つのソースが独立に判定し、GitHub Actions経由でDiscordに通知します。</p>
+        <ul>
+          <li><strong>tech</strong> — SMA9/21クロス + RSI(30分毎)</li>
+          <li><strong>dip</strong> — 売られすぎからの反転「⚡覚醒」(30分毎)</li>
+          <li><strong>whale</strong> — Whale Alertの大口資金移動(15分毎)</li>
+          <li><strong>macro</strong> — 雇用統計×金・ドル・株・VIX・原油・FF金利(月1回)</li>
+          <li><strong>confluence</strong> — 上記が2つ以上一致したら強調通知</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="stage manual">
+      <div class="num">2</div>
+      <div>
+        <div class="stage-head"><h2>判断・購入・記録</h2><span class="tag">手動</span></div>
+        <p>通知の方向・根拠・損切り目安を見て、買うかどうかは自分で決めます。</p>
+        <ul>
+          <li>取引所で購入(このシステムは発注しません)</li>
+          <li><code>journal_add.py</code>で建値・数量・損切りラインを記録</li>
+          <li><code>git push</code>してリポジトリに反映</li>
+        </ul>
+        <div class="examples">
+          <div class="example">
+            <div class="example-label">例:tech確認</div>
+            <div class="example-msg">🟢 BTC: LONG | 価格 $80,240 | RSI 45.8</div>
+            <div class="example-verdict">→ 2回連続で同方向を確認済み。トレンド継続とみて購入</div>
+          </div>
+          <div class="example">
+            <div class="example-label">例:⚡覚醒(dip反転)</div>
+            <div class="example-msg">🔴 SOL: RSI 27 → 31(反転上昇)</div>
+            <div class="example-verdict">→ 売られすぎからの反発初動とみて、押し目買いを検討</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage auto">
+      <div class="num">3</div>
+      <div>
+        <div class="stage-head"><h2>保有中の監視</h2><span class="tag">自動・15分毎</span></div>
+        <p>記録したポジションを、条件を満たすまで繰り返し見張ります。</p>
+        <ul>
+          <li>利確目標(既定+5%)に到達したか</li>
+          <li>損切りライン(記録時の<code>stop_loss</code>)を割ったか</li>
+          <li>その銘柄に新しいSHORTサインが出ていないか</li>
+        </ul>
+        <p class="callout">いずれか該当 → Discordへアラート(該当なしなら次のチェックまで待機)</p>
+      </div>
+    </div>
+
+    <div class="stage manual">
+      <div class="num">4</div>
+      <div>
+        <div class="stage-head"><h2>売却・記録</h2><span class="tag">手動</span></div>
+        <p>アラート、または自分の判断で売り時を決めます。</p>
+        <ul>
+          <li>取引所で売却</li>
+          <li><code>journal_close.py</code>で決済価格を記録</li>
+          <li><code>git push</code>してリポジトリに反映</li>
+        </ul>
+        <div class="examples">
+          <div class="example">
+            <div class="example-label">例:利確</div>
+            <div class="example-msg">🟢 建値 $79,800 → 現在値 $83,900(+5.1%)</div>
+            <div class="example-verdict">→ 利確目標+5%に到達。利益を確定して売却</div>
+          </div>
+          <div class="example">
+            <div class="example-label">例:損切り</div>
+            <div class="example-msg">🔴 損切りラインを割り込んでいます($2,430)</div>
+            <div class="example-verdict">→ 記録した損切りラインに抵触。損失を確定して撤退</div>
+          </div>
+          <div class="example">
+            <div class="example-label">例:テクニカル悪化</div>
+            <div class="example-msg">⚠️ この銘柄でテクニカル的に売り(SHORT)サインも出ています</div>
+            <div class="example-verdict">→ 含み益はあるが流れが変わった可能性。早めの利確を検討</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage auto">
+      <div class="num">5</div>
+      <div>
+        <div class="stage-head"><h2>検証・可視化</h2><span class="tag">自動・継続</span></div>
+        <p>シグナルが実際に当たっていたか、記録した損益はどうだったかを機械的に検証します。</p>
+        <ul>
+          <li>的中率 — 1時間後/24時間後の方向が合っていたか</li>
+          <li>目標到達率 — +5%に3日以内で届いたか、到達前の最大逆行幅</li>
+          <li>ペーパートレード — 全ソース分を実弾なしで自動シミュレーション</li>
+          <li><code>journal_report.py</code>で損益サマリー</li>
+        </ul>
+        <p class="callout ok">この結果が「①のシグナルをどこまで信じてよいか」の判断材料として蓄積されていきます。</p>
+      </div>
+    </div>
+
+  </section>
+
+  <p class="foot">
+    自動売買はしません。すべてのシグナルは参考情報であり、購入・売却は毎回あなた自身の判断です。
+  </p>
+</body>
+</html>
