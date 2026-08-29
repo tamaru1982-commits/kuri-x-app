@@ -9,7 +9,7 @@ name: Whale Signal Notifier
 
 on:
   schedule:
-    - cron: "3,18,33,48 3,4,6,8,10,11,12,13,14,15,16,17,22,23 * * *"  # 指定時間帯のみ15分おき
+    - cron: "6,21,36,51 3,4,6,8,10,11,12,13,14,15,16,17,22,23 * * *"  # 指定時間帯のみ15分おき
   workflow_dispatch: {}
 
 permissions:

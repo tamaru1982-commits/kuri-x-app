@@ -5,7 +5,7 @@ name: Accuracy Tracker
 
 on:
   schedule:
-    - cron: "24 * * * *"  # 毎時5分に実行
+    - cron: "29 * * * *"  # 毎時5分に実行
   workflow_dispatch: {}
 
 permissions:

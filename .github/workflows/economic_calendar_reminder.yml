@@ -5,7 +5,7 @@ name: Economic Calendar Reminder
 
 on:
   schedule:
-    - cron: "27 13 * * *"  # UTC 13:00 = 日本時間22:00頃
+    - cron: "54 13 * * *"  # UTC 13:00 = 日本時間22:00頃
   workflow_dispatch: {}
 
 permissions:

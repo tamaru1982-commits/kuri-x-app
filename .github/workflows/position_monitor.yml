@@ -6,7 +6,7 @@ name: Position Monitor
 
 on:
   schedule:
-    - cron: "12,42 * * * *"
+    - cron: "15,45 * * * *"
   workflow_dispatch: {}
 
 permissions:

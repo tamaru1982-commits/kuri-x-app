@@ -193,24 +193,25 @@
     <h2>各情報の取得タイミング</h2>
     <p>
       すべてGitHub Actionsの定期実行(cron)で自動的に動いています。時刻は日本時間(JST)の目安です。
-      実行する分は「検知 → 一致判定 → 建玉 → 監視 → 表示 → 検証」の順に3分ずつずらしてあり、
+      実行する分は「検知 → 一致判定 → 建玉 → 監視 → 表示 → 検証」の順に並べたうえで、
+      <strong>それぞれの実測実行時間の2倍以上の間隔</strong>を空けてあり、
       2つの処理が同時に走らないようにしています(理由は下の注記)。
     </p>
     <table>
-      <thead><tr><th>機能</th><th>実行タイミング(毎時)</th><th>設定ファイル</th></tr></thead>
+      <thead><tr><th>機能</th><th>実行タイミング(毎時)</th><th>実測</th><th>設定ファイル</th></tr></thead>
       <tbody>
-        <tr><td>tech / dip(価格取得・判定)</td><td>00分・30分</td><td><code>crypto_signal.yml</code></td></tr>
-        <tr><td>whale(クジラ監視)</td><td>03・18・33・48分(指定時間帯のみ)</td><td><code>whale_signal.yml</code></td></tr>
-        <tr><td>conf(複数ソース一致確認)</td><td>06分・36分</td><td><code>confluence_checker.yml</code></td></tr>
-        <tr><td>ペーパートレード記録</td><td>09分・39分</td><td><code>paper_trader.yml</code></td></tr>
-        <tr><td>ポジション監視</td><td>12分・42分</td><td><code>position_monitor.yml</code></td></tr>
-        <tr><td>ダッシュボード更新</td><td>15分・45分</td><td><code>dashboard.yml</code></td></tr>
-        <tr><td>x(X投稿監視)</td><td>21分・51分(指定時間帯のみ・現在停止中)</td><td><code>x_signal.yml</code></td></tr>
-        <tr><td>的中率検証</td><td>24分、月曜に週次サマリー</td><td><code>accuracy_tracker.yml</code></td></tr>
-        <tr><td>目標到達判定</td><td>54分</td><td><code>target_tracker.yml</code></td></tr>
-        <tr><td>macro(マクロ相関判定)</td><td>毎月8日 23:27頃</td><td><code>macro_signal.yml</code></td></tr>
-        <tr><td>経済指標リマインド</td><td>毎日22:27頃</td><td><code>economic_calendar_reminder.yml</code></td></tr>
-        <tr><td>資産相関レポート</td><td>毎週月曜7:00頃</td><td><code>correlation_report.yml</code></td></tr>
+        <tr><td>tech / dip(価格取得・判定)</td><td>00分・30分</td><td>約150秒</td><td><code>crypto_signal.yml</code></td></tr>
+        <tr><td>whale(クジラ監視)</td><td>06・21・36・51分(指定時間帯のみ)</td><td>約15秒</td><td><code>whale_signal.yml</code></td></tr>
+        <tr><td>conf(複数ソース一致確認)</td><td>09分・39分</td><td>約15秒</td><td><code>confluence_checker.yml</code></td></tr>
+        <tr><td>ペーパートレード記録</td><td>12分・42分</td><td>約15秒</td><td><code>paper_trader.yml</code></td></tr>
+        <tr><td>ポジション監視</td><td>15分・45分</td><td>約20秒</td><td><code>position_monitor.yml</code></td></tr>
+        <tr><td>ダッシュボード更新</td><td>18分・48分</td><td>約15秒</td><td><code>dashboard.yml</code></td></tr>
+        <tr><td>目標到達判定</td><td>24分</td><td>約145秒</td><td><code>target_tracker.yml</code></td></tr>
+        <tr><td>的中率検証</td><td>29分、月曜に週次サマリー</td><td>約15秒</td><td><code>accuracy_tracker.yml</code></td></tr>
+        <tr><td>x(X投稿監視)</td><td>57分(指定時間帯のみ・現在停止中)</td><td>約15秒</td><td><code>x_signal.yml</code></td></tr>
+        <tr><td>macro(マクロ相関判定)</td><td>毎月8日 23:54頃</td><td>約30秒</td><td><code>macro_signal.yml</code></td></tr>
+        <tr><td>経済指標リマインド</td><td>毎日22:54頃</td><td>約20秒</td><td><code>economic_calendar_reminder.yml</code></td></tr>
+        <tr><td>資産相関レポート</td><td>毎週月曜7:00頃</td><td>—</td><td><code>correlation_report.yml</code></td></tr>
       </tbody>
     </table>
     <div class="note">
@@ -220,8 +221,10 @@
       2つの処理が同時に書き込むとgitが自動でマージできず、後からコミットした側が丸ごと弾かれ、
       <strong>その回の検知結果が記録されないまま消えてしまいます</strong>。
       実際に2026年8月28日、クジラ検知が1件この理由で失われました。
-      現在は「実行時刻を互いに3分以上ずらす」「同じグループの処理は同時に動かない設定にする」
+      現在は「実行時刻を実測時間の2倍以上ずらす」「同じグループの処理は同時に動かない設定にする」
       「万一弾かれても最新を取り込んで再試行する」の3段構えで防いでいます。
+      なお同時に動かない設定は、3つ以上が一度に重なると待機中のものが取り消される仕様のため、
+      そもそも重ならないよう実行時刻の間隔で担保することを主にしています。
     </div>
     <div class="note">
       GitHub Actionsのschedule実行は「その時刻ちょうど」に必ず動く保証がなく、GitHub側の負荷状況で

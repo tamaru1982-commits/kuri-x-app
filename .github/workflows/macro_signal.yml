@@ -8,7 +8,7 @@ name: Macro Signal Notifier
 
 on:
   schedule:
-    - cron: "27 14 8 * *"  # 毎月8日 UTC14:00(NFPは毎月最初の金曜=7日目までに発表されるため余裕をもって8日に設定)
+    - cron: "54 14 8 * *"  # 毎月8日 UTC14:00(NFPは毎月最初の金曜=7日目までに発表されるため余裕をもって8日に設定)
   workflow_dispatch: {}
 
 permissions:

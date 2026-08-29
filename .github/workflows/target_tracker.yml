@@ -7,7 +7,7 @@ name: Target Tracker
 
 on:
   schedule:
-    - cron: "54 * * * *"
+    - cron: "24 * * * *"
   workflow_dispatch: {}
 
 permissions:

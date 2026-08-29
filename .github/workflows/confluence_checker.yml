@@ -6,7 +6,7 @@ name: Confluence Checker
 
 on:
   schedule:
-    - cron: "6,36 * * * *"  # 毎時10分・40分に実行(元の通知より少し後にずらす)
+    - cron: "9,39 * * * *"  # 毎時10分・40分に実行(元の通知より少し後にずらす)
   workflow_dispatch: {}
 
 permissions:
