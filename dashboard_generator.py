@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import db_utils
+import risk_utils
 
 OUTPUT_FILE = Path("docs/index.html")
 JST = timedelta(hours=9)
@@ -632,12 +633,28 @@ def render_weekly_highlight() -> str:
 
 PAPER_START_CAPITAL_JPY = float(os.environ.get("PAPER_START_CAPITAL_JPY", "50000"))
 
+# 1トレードに資金の何割を投じる前提で複利計算するか。
+# 以前は毎回「全額」を投じる前提で計算していたが、これは
+#   1. risk_utilsの「1トレードの損失許容は資金の1%」という方針と矛盾する
+#   2. 同時に複数ポジションを持っていても順番に全額賭けたものとして計算され、
+#      5銘柄を同時保有していれば資金の500%を賭けたことになってしまう
+# という二重の意味で実態から離れ、利益も損失も過大に表示されていた。
+# 既定値は損失許容1%÷損切り幅3%から導いた33%(3分の1)。
+PAPER_POSITION_FRACTION = float(os.environ.get(
+    "PAPER_POSITION_FRACTION",
+    str(risk_utils.RISK_PERCENT_PER_TRADE / risk_utils.DEFAULT_STOP_LOSS_PCT),
+))
+
 
 def render_compounding_curve() -> str:
     """各ソースについて、決済済みペーパートレードの騰落率を古い順に複利適用した場合、
     PAPER_START_CAPITAL_JPY(既定5万円)が今いくらになっているかをシミュレーションする。
     手数料は既にposition_monitor.py側でexit_priceに織り込み済みのため、ここでは
-    記録された騰落率をそのまま複利適用するだけでよい。"""
+    記録された騰落率をそのまま複利適用するだけでよい。
+
+    1トレードあたりPAPER_POSITION_FRACTION(既定33%)だけを投じる前提で計算する。
+    同時に保有していたポジションも順番に決済したものとして扱うため、あくまで
+    傾向をつかむための概算であり、正確な資産推移ではない。"""
     sources = db_utils.get_paper_sources()
     if not sources:
         return "<p class='muted'>まだ決済済みのペーパートレードがありません。</p>"
@@ -647,7 +664,7 @@ def render_compounding_curve() -> str:
         trades = db_utils.get_paper_trades_chronological(source)
         balance = PAPER_START_CAPITAL_JPY
         for t in trades:
-            balance *= (1 + t["pnl_pct"] / 100)
+            balance *= (1 + t["pnl_pct"] / 100 * PAPER_POSITION_FRACTION)
         multiple = balance / PAPER_START_CAPITAL_JPY
         color = "#4ade80" if balance >= PAPER_START_CAPITAL_JPY else "#f87171"
         rows_html.append(
@@ -658,7 +675,9 @@ def render_compounding_curve() -> str:
 
     return (
         f"<p class='muted' style='font-size:0.78rem;margin-bottom:8px;'>"
-        f"¥{PAPER_START_CAPITAL_JPY:,.0f}スタートで、そのソースのシグナルだけに毎回全額を複利で従っていたら、という仮定です。</p>"
+        f"¥{PAPER_START_CAPITAL_JPY:,.0f}スタートで、そのソースのシグナルに"
+        f"1回あたり資金の{PAPER_POSITION_FRACTION * 100:.0f}%ずつ投じて複利で従っていたら、という仮定です。"
+        f"同時保有分も順番に決済したものとして計算するため、傾向をつかむための概算です。</p>"
         "<div class='table-wrap'><table><thead><tr><th>ソース</th><th>トレード数</th>"
         "<th>現在の想定残高</th><th>倍率</th></tr></thead>"
         "<tbody>" + "".join(rows_html) + "</tbody></table></div>"
