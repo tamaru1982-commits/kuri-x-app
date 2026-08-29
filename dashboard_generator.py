@@ -13,6 +13,7 @@ dashboard.yml(定期実行)から呼び出され、生成後にdocs/index.html�
 """
 
 import html
+import os
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -553,6 +554,41 @@ def render_weekly_highlight() -> str:
     return "".join(lines)
 
 
+PAPER_START_CAPITAL_JPY = float(os.environ.get("PAPER_START_CAPITAL_JPY", "50000"))
+
+
+def render_compounding_curve() -> str:
+    """各ソースについて、決済済みペーパートレードの騰落率を古い順に複利適用した場合、
+    PAPER_START_CAPITAL_JPY(既定5万円)が今いくらになっているかをシミュレーションする。
+    手数料は既にposition_monitor.py側でexit_priceに織り込み済みのため、ここでは
+    記録された騰落率をそのまま複利適用するだけでよい。"""
+    sources = db_utils.get_paper_sources()
+    if not sources:
+        return "<p class='muted'>まだ決済済みのペーパートレードがありません。</p>"
+
+    rows_html = []
+    for source in sorted(sources):
+        trades = db_utils.get_paper_trades_chronological(source)
+        balance = PAPER_START_CAPITAL_JPY
+        for t in trades:
+            balance *= (1 + t["pnl_pct"] / 100)
+        multiple = balance / PAPER_START_CAPITAL_JPY
+        color = "#4ade80" if balance >= PAPER_START_CAPITAL_JPY else "#f87171"
+        rows_html.append(
+            f"<tr><td>{source_label(source)}</td><td>{len(trades)}件</td>"
+            f"<td style='color:{color};font-variant-numeric:tabular-nums;'>¥{balance:,.0f}</td>"
+            f"<td style='color:{color};'>×{multiple:.2f}</td></tr>"
+        )
+
+    return (
+        f"<p class='muted' style='font-size:0.78rem;margin-bottom:8px;'>"
+        f"¥{PAPER_START_CAPITAL_JPY:,.0f}スタートで、そのソースのシグナルだけに毎回全額を複利で従っていたら、という仮定です。</p>"
+        "<div class='table-wrap'><table><thead><tr><th>ソース</th><th>トレード数</th>"
+        "<th>現在の想定残高</th><th>倍率</th></tr></thead>"
+        "<tbody>" + "".join(rows_html) + "</tbody></table></div>"
+    )
+
+
 def generate_weekly_page():
     now_str = (datetime.utcnow() + JST).strftime("%m-%d %H:%M")
     content = f"""<!DOCTYPE html>
@@ -595,6 +631,11 @@ def generate_weekly_page():
     <h2>ペーパートレード成績(ソース別推移)</h2>
     {render_weekly_table()}
     {render_weekly_highlight()}
+  </section>
+
+  <section>
+    <h2>複利シミュレーション(ソース別)</h2>
+    {render_compounding_curve()}
   </section>
 
   <p class="muted" style="font-size:0.75rem;">

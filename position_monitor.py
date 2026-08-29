@@ -42,6 +42,10 @@ TARGET_PROFIT_PCT = float(os.environ.get("POSITION_TARGET_PROFIT_PCT", "5.0"))
 ALERT_COOLDOWN_HOURS = float(os.environ.get("POSITION_ALERT_COOLDOWN_HOURS", "12"))
 TECH_SIGNAL_LOOKBACK_HOURS = float(os.environ.get("POSITION_TECH_LOOKBACK_HOURS", "2"))
 
+# ペーパートレードの決済価格に往復分の想定手数料を反映し、成績が実態より
+# 良く見えすぎないようにする(片道0.15%を想定。国内取引所の現物手数料の目安)。
+PAPER_FEE_PCT = float(os.environ.get("PAPER_FEE_PCT", "0.15"))
+
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 COINGECKO_BASE = "https://api.coingecko.com/api/v3"
 STATE_FILE = Path("position_monitor_state.json")
@@ -130,11 +134,13 @@ def build_alert_message(row, current_price: float, pnl_pct: float, alert_types: 
     return "\n".join(lines)
 
 
-def build_paper_close_message(row, current_price: float, pnl_pct: float, alert_types: list[str]) -> str:
+def build_paper_close_message(row, market_price: float, fee_adjusted_pnl_pct: float, alert_types: list[str]) -> str:
     """ペーパートレード(is_paper=1)は人の判断を待たず自動決済するため、
-    「ご検討ください」ではなく「決済しました」の報告として通知する。"""
+    「ご検討ください」ではなく「決済しました」の報告として通知する。
+    損益は往復手数料(既定0.3%)を差し引いた実態に近い値を表示する。"""
     lines = [f"**📝 ペーパートレード決済: {row['asset']}**", ""]
-    lines.append(f"建値 ${row['entry_price']:,.4f} → 決済 ${current_price:,.4f}({pnl_pct:+.2f}%)")
+    lines.append(f"建値 ${row['entry_price']:,.4f} → 市場価格 ${market_price:,.4f}")
+    lines.append(f"手数料(往復{PAPER_FEE_PCT * 2:.2f}%)考慮後 損益: {fee_adjusted_pnl_pct:+.2f}%")
     if row["source"]:
         lines.append(f"シグナル元: {row['source']}")
     lines.append("")
@@ -221,11 +227,20 @@ def main():
                 mark_alerted(state, row["id"], alert_type)
 
             if row["is_paper"]:
-                # ペーパートレードは人の判断を待たず、条件を満たした時点で自動決済する
-                db_utils.close_journal_entry(row["id"], current_price)
-                send_discord_notification(build_paper_close_message(row, current_price, pnl_pct, alert_types))
+                # ペーパートレードは人の判断を待たず、条件を満たした時点で自動決済する。
+                # 記録するexit_priceには往復手数料を織り込み、成績が実態より良く見えないようにする。
+                fee_multiplier = 1 - (2 * PAPER_FEE_PCT / 100)
+                if row["direction"] == "LONG":
+                    fee_adjusted_exit = current_price * fee_multiplier
+                    fee_adjusted_pnl_pct = (fee_adjusted_exit - row["entry_price"]) / row["entry_price"] * 100
+                else:
+                    fee_adjusted_exit = current_price / fee_multiplier
+                    fee_adjusted_pnl_pct = (row["entry_price"] - fee_adjusted_exit) / row["entry_price"] * 100
+
+                db_utils.close_journal_entry(row["id"], fee_adjusted_exit)
+                send_discord_notification(build_paper_close_message(row, current_price, fee_adjusted_pnl_pct, alert_types))
                 print(f"[ペーパー決済] {asset} (id={row['id']}, source={row['source']}): "
-                      f"{','.join(alert_types)} / 損益{pnl_pct:+.2f}%")
+                      f"{','.join(alert_types)} / 手数料考慮後損益{fee_adjusted_pnl_pct:+.2f}%(市場{pnl_pct:+.2f}%)")
             else:
                 send_discord_notification(build_alert_message(row, current_price, pnl_pct, alert_types))
                 print(f"[通知] {asset} (id={row['id']}): {','.join(alert_types)} / 含み損益{pnl_pct:+.2f}%")

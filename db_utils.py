@@ -358,6 +358,37 @@ def get_paper_performance_window(start_hours_ago: int, end_hours_ago: int) -> li
     return result
 
 
+def get_paper_trades_chronological(source: str) -> list[dict]:
+    """指定ソースの決済済みペーパートレードを、決済日時の古い順で返す。
+    複利シミュレーション(週次レポート)で、各トレードの騰落率を順番に適用するために使う。"""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT entry_price, exit_price, direction, exit_timestamp FROM journal "
+        "WHERE is_paper = 1 AND status = 'closed' AND source = ? "
+        "ORDER BY datetime(exit_timestamp) ASC",
+        (source,),
+    ).fetchall()
+    conn.close()
+
+    result = []
+    for r in rows:
+        if r["direction"] == "LONG":
+            pnl_pct = (r["exit_price"] - r["entry_price"]) / r["entry_price"] * 100
+        else:
+            pnl_pct = (r["entry_price"] - r["exit_price"]) / r["entry_price"] * 100
+        result.append({"pnl_pct": pnl_pct, "exit_timestamp": r["exit_timestamp"]})
+    return result
+
+
+def get_paper_sources() -> list[str]:
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT DISTINCT source FROM journal WHERE is_paper = 1 AND status = 'closed' AND source IS NOT NULL"
+    ).fetchall()
+    conn.close()
+    return [r["source"] for r in rows]
+
+
 if __name__ == "__main__":
     init_db()
     print(f"[OK] {DB_FILE} を初期化しました。")
