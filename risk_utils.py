@@ -19,7 +19,14 @@ risk_utils.py
   「同時に追うのは基本1銘柄まで」という運用ルールを注意書きとして通知に添える
 """
 
+import json
 import os
+from pathlib import Path
+
+# 銘柄ごとの日次変動率は crypto_signal_notifier.py が算出して状態ファイルに書いている。
+# 各スクリプトが個別にAPIを叩いたり別々の基準を持ったりしないよう、
+# 損切り/利確の決定はこのモジュールに集約する。
+CRYPTO_STATE_FILE = Path("crypto_signal_state.json")
 
 RISK_PERCENT_PER_TRADE = float(os.environ.get("RISK_PERCENT_PER_TRADE", "1.0"))  # 1トレードの損失許容(口座資金の%)
 DEFAULT_STOP_LOSS_PCT = float(os.environ.get("DEFAULT_STOP_LOSS_PCT", "3.0"))    # 損切りまでの値幅(%)
@@ -61,6 +68,28 @@ def stop_loss_pct_for_volatility(daily_volatility_pct: float | None) -> float:
 def target_pct_for_stop(stop_loss_pct: float) -> float:
     """損切り幅に対応する利確目標(%)。比率を固定して損益分岐の勝率を一定に保つ。"""
     return stop_loss_pct * TARGET_TO_STOP_RATIO
+
+
+def load_volatility() -> dict:
+    """crypto_signal_notifier.pyが記録した銘柄ごとの日次変動率(%)を読む。"""
+    if not CRYPTO_STATE_FILE.exists():
+        return {}
+    try:
+        return json.loads(CRYPTO_STATE_FILE.read_text(encoding="utf-8")).get("volatility", {})
+    except Exception:
+        return {}
+
+
+def stop_and_target_for(asset: str, volatility: dict | None = None) -> tuple[float, float]:
+    """銘柄に応じた (損切り幅%, 利確目標%) を返す。
+
+    ペーパートレード・手動記録・目標到達率の検証がそれぞれ別の基準で動くと、
+    同じシグナルをダッシュボード上で違う物差しで評価することになるため、
+    すべてここを通す。変動率が不明な銘柄は従来どおりの既定値になる。
+    """
+    volatility = load_volatility() if volatility is None else volatility
+    stop_pct = stop_loss_pct_for_volatility(volatility.get(asset))
+    return stop_pct, target_pct_for_stop(stop_pct)
 
 
 def calc_stop_loss_price(price: float, direction: str, stop_loss_pct: float = None) -> float:

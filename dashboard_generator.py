@@ -191,7 +191,8 @@ def render_hit_rate_by_source(summary) -> str:
     「どのソースが効いているか」はこちらの表で見る。
     件数が少ないうちは数字を鵜呑みにできないので、目安件数に満たない行は注記する。"""
     if not summary:
-        return "<p class='muted'>まだ的中率を計算できるデータがありません。</p>"
+        return ("<p class='muted'>まだ的中率を計算できるデータがありません。"
+                f"({db_utils.STATS_SINCE[:10]}の判定ルール変更以降のシグナルのみを集計しています)</p>")
 
     items = []
     for row in summary:

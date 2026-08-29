@@ -32,6 +32,7 @@ import pandas as pd
 
 import db_utils
 import price_utils
+import risk_utils
 
 TARGET_PCT = float(os.environ.get("TARGET_PCT", "5.0"))
 TARGET_WINDOW_HOURS = float(os.environ.get("TARGET_WINDOW_HOURS", "72"))
@@ -71,7 +72,7 @@ def get_pending_target_signals():
     return rows
 
 
-def evaluate_signal(row, price_series: pd.Series) -> dict | None:
+def evaluate_signal(row, price_series: pd.Series, target_pct: float | None = None) -> dict | None:
     signal_time_naive = datetime.fromisoformat(row["timestamp"])
     signal_time = pd.Timestamp(signal_time_naive).tz_localize("UTC")
     price_at_signal = row["price_at_signal"]
@@ -86,7 +87,8 @@ def evaluate_signal(row, price_series: pd.Series) -> dict | None:
     favorable = pct_change if direction == "LONG" else -pct_change
 
     elapsed_hours = (datetime.now(timezone.utc).replace(tzinfo=None) - signal_time_naive).total_seconds() / 3600
-    target_pct = row["target_pct"] or TARGET_PCT
+    # 既に判定済みの目標があればそれを優先し、無ければ銘柄ごとの目標を使う
+    target_pct = row["target_pct"] or target_pct or TARGET_PCT
     window_hours = row["target_window_hours"] or TARGET_WINDOW_HOURS
 
     hit_mask = favorable >= target_pct
@@ -106,14 +108,14 @@ def evaluate_signal(row, price_series: pd.Series) -> dict | None:
     return None  # まだ判定できない(未達だが判定期間内)
 
 
-def record_result(signal_id: int, result: dict):
+def record_result(signal_id: int, result: dict, target_pct: float):
     conn = db_utils.get_conn()
     conn.execute(
         "UPDATE signals SET target_hit = ?, target_hit_hours = ?, max_adverse_pct = ?, "
         "target_pct = COALESCE(target_pct, ?), target_window_hours = COALESCE(target_window_hours, ?) "
         "WHERE id = ?",
         (result["target_hit"], result["target_hit_hours"], result["max_adverse_pct"],
-         TARGET_PCT, TARGET_WINDOW_HOURS, signal_id),
+         target_pct, TARGET_WINDOW_HOURS, signal_id),
     )
     conn.commit()
     conn.close()
@@ -126,6 +128,10 @@ def main():
     if not pending:
         print("判定対象のシグナルはありません。")
         return 0
+
+    # 目標到達率とペーパートレードが別々の基準で評価されると、同じシグナルを
+    # ダッシュボード上で違う物差しで見ることになるため、判定基準を揃える
+    volatility = risk_utils.load_volatility()
 
     by_asset: dict[str, list] = {}
     for row in pending:
@@ -141,10 +147,11 @@ def main():
             print(f"[エラー] {asset} の価格取得に失敗: {e}")
             continue
 
+        _, asset_target_pct = risk_utils.stop_and_target_for(asset, volatility)
         for row in rows:
-            result = evaluate_signal(row, price_series)
+            result = evaluate_signal(row, price_series, asset_target_pct)
             if result:
-                record_result(row["id"], result)
+                record_result(row["id"], result, asset_target_pct)
                 if result["target_hit"] == "yes":
                     status = f"到達({result['target_hit_hours']}時間後)"
                 else:

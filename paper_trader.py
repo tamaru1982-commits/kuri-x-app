@@ -45,10 +45,6 @@ import risk_utils
 
 NOTIONAL_USD = float(os.environ.get("PAPER_NOTIONAL_USD", "100"))  # 1トレードあたりの想定金額
 
-# 銘柄ごとの日次変動率は crypto_signal_notifier.py が算出して状態ファイルに書いている。
-# こちらから改めてAPIを叩かずに済むよう、その値を読んで損切り幅を決める。
-CRYPTO_STATE_FILE = Path("crypto_signal_state.json")
-
 # シグナル発生からこの時間を超えて経過していたら建玉しない。
 # 通常運用ではcrypto_signalが00/30分、paper_traderが12/42分なので遅れは最大30分程度。
 # それを超えるのはワークフロー停止などの異常時であり、その分を建てると検証が壊れる。
@@ -68,16 +64,6 @@ def load_state() -> dict:
 
 def save_state(state: dict):
     STATE_FILE.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
-
-
-def load_volatility() -> dict:
-    """crypto_signal_notifier.pyが記録した銘柄ごとの日次変動率(%)を読む。"""
-    if not CRYPTO_STATE_FILE.exists():
-        return {}
-    try:
-        return json.loads(CRYPTO_STATE_FILE.read_text(encoding="utf-8")).get("volatility", {})
-    except Exception:
-        return {}
 
 
 def get_new_long_signals(since_id: int) -> list:
@@ -125,7 +111,7 @@ def main():
         except Exception as e:
             print(f"[エラー] 価格取得に失敗しました: {e}")
 
-    volatility = load_volatility()
+    volatility = risk_utils.load_volatility()
     opened = 0
     # スキップした分も含めて再処理しないよう、状態は取得した全シグナルで進める
     max_id = max([last_id] + [sig["id"] for sig in signals])
@@ -152,8 +138,7 @@ def main():
 
         # 損切り幅は銘柄の値動きの荒さに合わせる。一律だと、値動きの荒い銘柄では
         # シグナルの当たり外れに関係なくノイズで損切りされてしまう。
-        stop_pct = risk_utils.stop_loss_pct_for_volatility(volatility.get(asset))
-        target_pct = risk_utils.target_pct_for_stop(stop_pct)
+        stop_pct, target_pct = risk_utils.stop_and_target_for(asset, volatility)
 
         size = NOTIONAL_USD / price
         stop_loss = price * (1 - stop_pct / 100)

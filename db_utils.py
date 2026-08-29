@@ -21,6 +21,15 @@ DB_FILE = Path("trading_system.db")
 # それ未満の微動を「的中」に数えると的中率が実態より甘く出る。
 HIT_THRESHOLD_PCT = float(os.environ.get("HIT_THRESHOLD_PCT", "0.3"))
 
+# 判定ルールを変更した日時(UTC)。これより前のシグナルは集計から除外する。
+#
+# 2026-08-29に、techの判定を「トレンド継続中も出す」から「日足のクロスのみ」へ、
+# 目標到達率の基準を一律+5%から銘柄ごとの値へ変更した。
+# 基準の違うシグナルを1つの的中率にまとめると、その数字が何を意味するのか
+# 説明できなくなるため、集計対象を新ルール以降に限定する。
+# (シグナル履歴自体は残すので、必要ならこの値を変えて過去分も見られる)
+STATS_SINCE = os.environ.get("STATS_SINCE", "2026-08-29 13:30:00")
+
 
 def utc_now_iso() -> str:
     """DBに保存する時刻文字列(UTC・タイムゾーン表記なし)。
@@ -191,6 +200,7 @@ def get_hit_rate_summary(hours: int = 24 * 30) -> list[dict]:
         FROM signals
         WHERE outcome_24h IS NOT NULL
         AND datetime(timestamp) >= datetime('now', '-{hours} hours')
+        AND datetime(timestamp) >= datetime('{STATS_SINCE}')
         GROUP BY source, asset
     """).fetchall()
     conn.close()
@@ -217,6 +227,7 @@ def get_hit_rate_by_source(hours: int = 24 * 30) -> list[dict]:
         FROM signals
         WHERE outcome_24h IS NOT NULL
         AND datetime(timestamp) >= datetime('now', '-{hours} hours')
+        AND datetime(timestamp) >= datetime('{STATS_SINCE}')
         GROUP BY source
         ORDER BY total DESC
     """).fetchall()
@@ -248,6 +259,7 @@ def get_target_hit_summary(hours: int = 24 * 30) -> list[dict]:
         FROM signals
         WHERE target_hit IS NOT NULL
         AND datetime(timestamp) >= datetime('now', '-{hours} hours')
+        AND datetime(timestamp) >= datetime('{STATS_SINCE}')
         GROUP BY source, asset, direction
     """).fetchall()
     conn.close()

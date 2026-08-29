@@ -20,8 +20,16 @@ import db_utils
 import price_utils
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
-LOOKBACK_HOURS = int(os.environ.get("CONFLUENCE_LOOKBACK_HOURS", "6"))
-COOLDOWN_MINUTES = int(os.environ.get("CONFLUENCE_COOLDOWN_MINUTES", "180"))
+
+# 一致を探す時間窓。techが日足のクロス判定になり、発生頻度が月1〜2回/銘柄まで
+# 下がったため、6時間窓ではまず複数ソースが揃わない。日足のシグナルは数日単位で
+# 意味を持つので、窓もそれに合わせて24時間にする。
+LOOKBACK_HOURS = int(os.environ.get("CONFLUENCE_LOOKBACK_HOURS", "24"))
+
+# クールダウンは検知窓と同じにする。これより短いと、窓の中に同じ組み合わせが
+# 残っている限りクールダウンが切れるたびに同じ一致を再通知してしまう
+# (以前180分で窓が6時間だったため、同じ一致が最大2回通知されうる状態だった)。
+COOLDOWN_MINUTES = int(os.environ.get("CONFLUENCE_COOLDOWN_MINUTES", str(LOOKBACK_HOURS * 60)))
 
 SOURCE_NAME = "confluence"
 TARGET_SOURCES = ["crypto_technical", "x_post", "whale_flow", "macro_pattern"]
