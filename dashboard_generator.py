@@ -130,6 +130,21 @@ def render_asset_filter(assets: list[str]) -> str:
     return f"<div class='filter-bar'>{boxes}</div>"
 
 
+# dip以外にも、注目度の高いソースは行を光らせて目を引くようにする
+# (dip=覚醒レッド, whale=ソナーブルー, confluence=ゴールド, macro=紫のブリージング)
+SOURCE_EFFECT_CLASS = {
+    "crypto_dip": "awakening",
+    "whale_flow": "whale-surge",
+    "confluence": "confluence-glow",
+    "macro_pattern": "macro-breathe",
+}
+SOURCE_LABEL_EMOJI = {
+    "whale_flow": "🐋",
+    "confluence": "🎯",
+    "macro_pattern": "🌐",
+}
+
+
 def render_recent_signals(rows) -> str:
     if not rows:
         return "<p class='muted'>直近のシグナルはありません。</p>"
@@ -145,8 +160,14 @@ def render_recent_signals(rows) -> str:
         basis = html.escape(" · ".join(basis_parts))
         title_attr = f" title='{html.escape(' '.join(full_message.split()))}'" if full_message else ""
         basis_span = f"<span class='basis'> · {basis}</span>" if basis else ""
-        row_class = " class='awakening'" if r["source"] == "crypto_dip" else ""
-        label = "⚡覚醒" if r["source"] == "crypto_dip" else f"{signal_emoji(r['direction'])} {r['direction']}"
+        effect_class = SOURCE_EFFECT_CLASS.get(r["source"])
+        row_class = f" class='{effect_class}'" if effect_class else ""
+        if r["source"] == "crypto_dip":
+            label = "⚡覚醒"
+        elif r["source"] in SOURCE_LABEL_EMOJI:
+            label = f"{SOURCE_LABEL_EMOJI[r['source']]} {r['direction']}"
+        else:
+            label = f"{signal_emoji(r['direction'])} {r['direction']}"
         items.append(
             f"<tr data-asset='{html.escape(r['asset'])}'{row_class}>"
             f"<td>{to_short_time(r['timestamp'])}</td>"
@@ -352,6 +373,27 @@ def build_html() -> str:
   }}
   tr.awakening {{ animation: patrol-lamp 1.2s ease-in-out infinite; }}
   tr.awakening td:nth-child(4) {{ font-weight: 700; color: #ff6b57; }}
+  @keyframes whale-surge {{
+    0%, 100% {{ background-color: rgba(56, 189, 248, 0.08); box-shadow: inset 3px 0 0 0 #0ea5e9; }}
+    50% {{ background-color: rgba(56, 189, 248, 0.24); box-shadow: inset 3px 0 0 0 #38bdf8; }}
+  }}
+  tr.whale-surge {{ animation: whale-surge 2s ease-in-out infinite; }}
+  tr.whale-surge td:nth-child(4) {{ font-weight: 700; color: #38bdf8; }}
+  @keyframes confluence-glow {{
+    0%, 100% {{ background-color: rgba(240, 196, 25, 0.10); box-shadow: inset 3px 0 0 0 #f0c419; }}
+    50% {{ background-color: rgba(255, 215, 0, 0.30); box-shadow: inset 3px 0 0 0 #ffd700; }}
+  }}
+  tr.confluence-glow {{ animation: confluence-glow 1s ease-in-out infinite; }}
+  tr.confluence-glow td:nth-child(4) {{ font-weight: 700; color: #ffd700; }}
+  @keyframes macro-breathe {{
+    0%, 100% {{ background-color: rgba(139, 92, 246, 0.07); box-shadow: inset 3px 0 0 0 #7c3aed; }}
+    50% {{ background-color: rgba(139, 92, 246, 0.22); box-shadow: inset 3px 0 0 0 #a78bfa; }}
+  }}
+  tr.macro-breathe {{ animation: macro-breathe 3s ease-in-out infinite; }}
+  tr.macro-breathe td:nth-child(4) {{ font-weight: 700; color: #a78bfa; }}
+  @media (prefers-reduced-motion: reduce) {{
+    tr.awakening, tr.whale-surge, tr.confluence-glow, tr.macro-breathe {{ animation: none; }}
+  }}
 </style>
 </head>
 <body>
