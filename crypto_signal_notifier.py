@@ -54,11 +54,23 @@ RSI_OVERSOLD = 30
 
 COOLDOWN_MINUTES = int(os.environ.get("CRYPTO_COOLDOWN_MINUTES", "180"))  # 同一資産・同一方向の再通知間隔
 
-# was_recently_notified はsource+asset+directionで判定するため、方向が反転した瞬間は
-# クールダウンを素通りしてしまう(LONG<->SHORTの切り替えは「別方向」扱いになるため)。
-# レンジ相場でSMAクロスが小刻みに反転する「ダマシ」への往復ビンタ通知を減らすため、
-# 直近CONFIRM_COUNT回連続で同じ方向が出た場合のみ通知する確認フィルタを設ける。
-CONFIRM_COUNT = int(os.environ.get("CRYPTO_CONFIRM_COUNT", "2"))
+# レンジ相場でSMAクロスが小刻みに反転する「ダマシ」を弾くための確認フィルタ。
+#
+# 以前は「直近2回連続で同じ方向が出たら通知」という実装だったが、これは判定が
+# 「トレンドが継続している状態」で真になる状態ベースだったから成立していた。
+# クロス(一瞬の出来事)のみを見る現在の判定では、次の実行までにローソク足が進むと
+# クロス条件自体が消えるため、同じ条件では通知がほとんど出なくなる。
+# そのため「クロスを検知した回はいったん保留し、次の実行でもまだ同じ側にいれば確定」
+# という形にしている(クロス直後に押し戻された場合は見送られる)。
+# CONFIRM_CROSS=0 にすると保留せずクロス検知した回にそのまま通知する。
+CONFIRM_CROSS = os.environ.get("CRYPTO_CONFIRM_CROSS", "1") not in ("0", "false", "False")
+
+# クロスを直近何本ぶんさかのぼって探すか。
+# 直近2点だけを見る実装だと、GitHub Actionsの実行が遅延・欠落した回にクロスが
+# 起きていた場合、そのクロスを二度と検知できない(トレンド継続で判定していた頃は
+# 次の実行で拾えたが、イベントで判定する以上は取りこぼしがそのまま欠損になる)。
+# 同じクロスを重複通知することはクールダウンが防ぐため、幅を持たせる方が安全。
+CROSS_LOOKBACK = int(os.environ.get("CRYPTO_CROSS_LOOKBACK", "3"))
 STATE_FILE = Path("crypto_signal_state.json")
 
 # 押し目シグナル: トレンド方向(SMA)に関わらず、RSIが売られすぎ圏に入ったこと自体を
@@ -131,32 +143,61 @@ def compute_rsi(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
 
     rs = avg_gain / avg_loss.replace(0, pd.NA)
     rsi = 100 - (100 / (1 + rs))
+
+    # 期間中に一度も下落がないと avg_loss が0になり、上の計算ではRSIがNaNになる。
+    # NaNのままだと judge_signal が「データ不足」として扱い、本来なら最も強い
+    # 上昇局面のシグナルが握り潰されてしまうため、定義どおりの値を明示的に入れる。
+    rsi = rsi.mask((avg_loss == 0) & (avg_gain > 0), 100.0)   # 全て上昇 = 買われすぎの極
+    rsi = rsi.mask((avg_loss == 0) & (avg_gain == 0), 50.0)   # 値動きなし = 中立
+
     df["rsi"] = rsi
     return df
 
 
 # ============ シグナル判定 ============
 
+def detect_recent_cross(df: pd.DataFrame, lookback: int) -> tuple[bool, bool]:
+    """直近lookback本ぶんの区間にSMAのクロスがあったかを返す (golden, dead)。
+
+    実行の遅延・欠落でクロスを取りこぼさないよう幅を持たせている。
+    区間内に複数回クロスした場合は、最後に起きたクロスの向きを採用する
+    (往復した場合、現時点で意味を持つのは直近の向きのため)。
+    """
+    golden = dead = False
+    window = df.iloc[-(lookback + 1):]
+    for i in range(1, len(window)):
+        prev, now = window.iloc[i - 1], window.iloc[i]
+        if any(pd.isna(v) for v in (prev["sma_short"], prev["sma_long"], now["sma_short"], now["sma_long"])):
+            continue
+        if prev["sma_short"] <= prev["sma_long"] and now["sma_short"] > now["sma_long"]:
+            golden, dead = True, False
+        elif prev["sma_short"] >= prev["sma_long"] and now["sma_short"] < now["sma_long"]:
+            golden, dead = False, True
+    return golden, dead
+
+
 def judge_signal(df: pd.DataFrame) -> dict:
     latest = df.iloc[-1]
-    prev = df.iloc[-2]
 
     sma_short_now, sma_long_now = latest["sma_short"], latest["sma_long"]
-    sma_short_prev, sma_long_prev = prev["sma_short"], prev["sma_long"]
     rsi_now = latest["rsi"]
     price_now = latest["price"]
 
     if pd.isna(sma_short_now) or pd.isna(sma_long_now) or pd.isna(rsi_now):
         return {"signal": "データ不足", "price": price_now, "rsi": rsi_now}
 
-    golden_cross = sma_short_prev <= sma_long_prev and sma_short_now > sma_long_now
-    dead_cross = sma_short_prev >= sma_long_prev and sma_short_now < sma_long_now
+    golden_cross, dead_cross = detect_recent_cross(df, CROSS_LOOKBACK)
     trend_up = sma_short_now > sma_long_now
     trend_down = sma_short_now < sma_long_now
 
-    if (golden_cross or trend_up) and rsi_now < RSI_OVERBOUGHT:
+    # クロスした瞬間のみをシグナルとして扱う(トレンド継続中は出さない)。
+    # 以前は (golden_cross or trend_up) としていたため、トレンドが続いている限り
+    # 同じ相場が何度もシグナル化され、実質1つの相場への賭けを複数回検証してしまっていた
+    # (実測: ETH LONG 5回 / XRP SHORT 5回)。売買タイミングとして意味を持つのは
+    # クロスした瞬間だけなので、そこに絞る。
+    if golden_cross and rsi_now < RSI_OVERBOUGHT:
         signal = "LONG"
-    elif (dead_cross or trend_down) and rsi_now > RSI_OVERSOLD:
+    elif dead_cross and rsi_now > RSI_OVERSOLD:
         signal = "SHORT"
     else:
         signal = "様子見"
@@ -165,6 +206,7 @@ def judge_signal(df: pd.DataFrame) -> dict:
         "signal": signal, "price": price_now, "rsi": rsi_now,
         "sma_short": sma_short_now, "sma_long": sma_long_now,
         "golden_cross": golden_cross, "dead_cross": dead_cross,
+        "trend_up": trend_up, "trend_down": trend_down,
     }
 
 
@@ -278,6 +320,14 @@ def main():
     state = load_state()
     confirm_state = state.setdefault("confirm", {})
     dip_rsi_state = state.setdefault("dip_rsi", {})
+
+    # 旧形式({"last_signal":..,"count":N})の残骸を掃除する。
+    # 現在は{"pending":方向}のみを使うため、そのままだと解除されず残り続ける。
+    for symbol in [s for s, v in confirm_state.items() if not isinstance(v, dict) or "pending" not in v]:
+        confirm_state.pop(symbol, None)
+    # さらに古い版がstate直下に書いていた銘柄キーも掃除する
+    for key in [k for k in state if k not in ("confirm", "dip_rsi")]:
+        state.pop(key, None)
     results = []
     dip_signals = []
     any_to_notify = False
@@ -292,24 +342,43 @@ def main():
             result = judge_signal(df)
             raw_signal = result["signal"]
 
-            if raw_signal in ("LONG", "SHORT"):
-                # 直近CONFIRM_COUNT回連続で同じ方向かを確認(ダマシによる往復ビンタ通知を防止)
-                prev = confirm_state.get(symbol, {})
-                streak = prev.get("count", 0) + 1 if prev.get("last_signal") == raw_signal else 1
-                confirm_state[symbol] = {"last_signal": raw_signal, "count": streak}
+            # クロス検知 → 次回も同じ側にいれば確定、という2段階で判定する。
+            # 確定した方向をfire_signalに入れる(Noneなら今回は通知しない)。
+            fire_signal = None
+            pending_dir = (confirm_state.get(symbol) or {}).get("pending")
 
-                if streak < CONFIRM_COUNT:
-                    print(f"{symbol}: {raw_signal}(確認{streak}/{CONFIRM_COUNT}回目のため様子見扱い)")
-                    result["signal"] = f"様子見(確認中{streak}/{CONFIRM_COUNT})"
-                elif db_utils.was_recently_notified(SOURCE_NAME, symbol, raw_signal, COOLDOWN_MINUTES):
-                    print(f"{symbol}: {raw_signal} だがクールダウン中のためスキップ")
+            # 今回検知したクロス、または前回保留したクロスを候補とする。
+            # (検知に幅を持たせているため、同じクロスが複数回の実行で検知されうる。
+            #  その場合も2回目の観測を「確認」として扱い、確定を先送りしない)
+            candidate = raw_signal if raw_signal in ("LONG", "SHORT") else pending_dir
+
+            if candidate:
+                if not CONFIRM_CROSS:
+                    fire_signal = candidate
+                    confirm_state.pop(symbol, None)
+                elif pending_dir == candidate:
+                    # 2回目の観測。まだ同じ側にいれば確定、押し戻されていれば見送り
+                    still_same_side = result.get("trend_up") if candidate == "LONG" else result.get("trend_down")
+                    confirm_state.pop(symbol, None)
+                    if still_same_side:
+                        fire_signal = candidate
+                    else:
+                        print(f"{symbol}: {candidate}クロスは押し戻されたため見送り(ダマシ)")
+                        result["signal"] = f"様子見({candidate}クロスが続かず見送り)"
+                else:
+                    # 初回検知。次の実行でまだ同じ側にいるかを見てから判断する
+                    confirm_state[symbol] = {"pending": candidate}
+                    print(f"{symbol}: {candidate}クロス検知(次回も同じ側なら確定)")
+                    result["signal"] = f"様子見(クロス確認中→{candidate})"
+
+            if fire_signal:
+                if db_utils.was_recently_notified(SOURCE_NAME, symbol, fire_signal, COOLDOWN_MINUTES):
+                    print(f"{symbol}: {fire_signal} だがクールダウン中のためスキップ")
                     result["signal"] = "様子見(クールダウン中)"
                 else:
-                    db_utils.log_signal(SOURCE_NAME, symbol, raw_signal, result["price"], message=f"RSI{result['rsi']:.0f}")
+                    result["signal"] = fire_signal
+                    db_utils.log_signal(SOURCE_NAME, symbol, fire_signal, result["price"], message=f"RSI{result['rsi']:.0f}")
                     any_to_notify = True
-            else:
-                # 様子見/データ不足時は連続確認カウントをリセット(方向転換の再確認をやり直す)
-                confirm_state.pop(symbol, None)
 
             # 押し目チェック: 単に「売られすぎ圏(RSI<=閾値)」なだけでなく、
             # 前回チェック時よりRSIが上向いた(反転の初動)場合のみ発火させる。
