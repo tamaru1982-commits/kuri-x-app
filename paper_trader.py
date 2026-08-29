@@ -18,14 +18,25 @@ journal.is_paper列で区別され、混同しない。
   その時点の価格をCoinGeckoから取得する
 - 対応表に無い資産(ステーブルコイン・「市場全体」等)はペーパートレード対象外
 
+古いシグナルを建玉しない理由(重要):
+建値にはシグナル発生時点の価格を使うため、発生から時間が経ったシグナルを
+後から建玉すると「何時間も前の価格で買ったことにして、今の価格と比較する」
+ことになり、検証結果が完全に無意味になる。
+実際、初回のバックログ処理で26〜52時間前のシグナルをまとめて建玉した結果、
+21件すべてが建玉直後に損切りされ(TRIAは16分で-13.5%)、「techは負けるソース」
+という誤った結論が出かかった。値動きではなく時間差がそのまま損益として
+記録されただけだった。
+そのためSTALE_SIGNAL_MAX_MINUTESを超えたシグナルは建玉せずスキップする。
+
 注意:
-- 実際の売買ではありません。手数料・スリッページ・約定タイミングは考慮していません。
+- 実際の売買ではありません。スリッページ・約定タイミングは考慮していません。
   あくまで「シグナルに機械的に従った場合の参考シミュレーション」です。投資助言ではありません。
 """
 
 import os
 import sys
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import db_utils
@@ -34,6 +45,11 @@ import risk_utils
 
 NOTIONAL_USD = float(os.environ.get("PAPER_NOTIONAL_USD", "100"))  # 1トレードあたりの想定金額
 STOP_LOSS_PCT = risk_utils.DEFAULT_STOP_LOSS_PCT
+
+# シグナル発生からこの時間を超えて経過していたら建玉しない。
+# 通常運用ではcrypto_signalが00/30分、paper_traderが12/42分なので遅れは最大30分程度。
+# それを超えるのはワークフロー停止などの異常時であり、その分を建てると検証が壊れる。
+STALE_SIGNAL_MAX_MINUTES = float(os.environ.get("PAPER_STALE_MAX_MINUTES", "60"))
 
 STATE_FILE = Path("paper_trader_state.json")
 
@@ -72,9 +88,21 @@ def main():
         save_state(state)  # state_fileが未作成だとワークフロー側のgit addが失敗するため必ず保存する
         return 0
 
+    # 古すぎるシグナルは建玉しない(建値と現在価格の時間差がそのまま損益として
+    # 記録され、検証が無意味になるため)。状態ファイルのidだけは進めて再処理を防ぐ。
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    fresh = []
+    for sig in signals:
+        age_minutes = (now - datetime.fromisoformat(sig["timestamp"])).total_seconds() / 60
+        if age_minutes > STALE_SIGNAL_MAX_MINUTES:
+            print(f"[スキップ] {sig['source']} {sig['asset']}: "
+                  f"発生から{age_minutes:.0f}分経過(上限{STALE_SIGNAL_MAX_MINUTES:.0f}分)のため建玉しません")
+            continue
+        fresh.append(sig)
+
     # price_at_signalが無いシグナル用に、必要な銘柄の価格をまとめて1回で取得する
     missing_price_assets = sorted({
-        sig["asset"] for sig in signals
+        sig["asset"] for sig in fresh
         if sig["price_at_signal"] is None and price_utils.is_supported(sig["asset"])
     })
     fallback_prices = {}
@@ -85,14 +113,19 @@ def main():
             print(f"[エラー] 価格取得に失敗しました: {e}")
 
     opened = 0
-    max_id = last_id
+    # スキップした分も含めて再処理しないよう、状態は取得した全シグナルで進める
+    max_id = max([last_id] + [sig["id"] for sig in signals])
 
-    for sig in signals:
-        max_id = max(max_id, sig["id"])
+    for sig in fresh:
         asset = sig["asset"]
 
         if not price_utils.is_supported(asset):
             print(f"[スキップ] {sig['source']} {asset}: 対応表未登録のため対象外")
+            continue
+
+        # 同じ相場を重複して建てない(下記関数のコメント参照)
+        if db_utils.has_open_paper_position(asset, sig["source"]):
+            print(f"[スキップ] {sig['source']} {asset}: 同ソースで保有中のため建て増ししません")
             continue
 
         price = sig["price_at_signal"]

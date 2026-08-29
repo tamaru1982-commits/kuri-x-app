@@ -422,6 +422,22 @@ def get_paper_trades_chronological(source: str) -> list[dict]:
     return result
 
 
+def has_open_paper_position(asset: str, source: str) -> bool:
+    """同じ資産・同じシグナルソースで、まだ決済していないペーパートレードがあるか。
+
+    crypto_technicalの判定は「クロスした瞬間」ではなく「トレンドが続いている状態」で
+    真になるため、同じ相場が何度もシグナル化される(実測でETH LONGが5回)。
+    これを毎回建玉すると、実質1つの相場への賭けを複数トレードとして数えてしまい、
+    勝率も複利シミュレーションも実態から乖離する。既に保有中なら建て増さない。"""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT 1 FROM journal WHERE is_paper = 1 AND status = 'open' AND asset = ? AND source = ? LIMIT 1",
+        (asset, source),
+    ).fetchone()
+    conn.close()
+    return row is not None
+
+
 def get_paper_sources() -> list[str]:
     conn = get_conn()
     rows = conn.execute(
