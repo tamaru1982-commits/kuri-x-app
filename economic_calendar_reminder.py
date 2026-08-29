@@ -14,6 +14,7 @@ FOMC_MEETING_DATES に手動で日程を追加する方式にしている。
 """
 
 import os
+import sys
 import json
 from datetime import datetime
 from pathlib import Path
@@ -96,16 +97,19 @@ def build_nfp_pattern_section() -> str:
     return "\n".join(lines)
 
 
-def send_discord_notification(message: str):
+def send_discord_notification(message: str) -> bool:
+    """送信できたかを返す。このスクリプトは通知することだけが目的なので、
+    送信に失敗したまま成功扱いにすると通知が止まっていることに気づけない。"""
     if not DISCORD_WEBHOOK_URL:
         print("[警告] DISCORD_WEBHOOK_URL 未設定のためコンソール出力のみ:")
         print(message)
-        return
+        return True
     resp = requests.post(DISCORD_WEBHOOK_URL, json={"content": message}, timeout=15)
     if resp.status_code >= 300:
         print(f"[エラー] Discord通知失敗: {resp.status_code} {resp.text}")
-    else:
-        print("[OK] リマインド通知を送信しました。")
+        return False
+    print("[OK] リマインド通知を送信しました。")
+    return True
 
 
 def check_and_notify(key: str, label: str, release_date: str | None, state: dict):
@@ -139,24 +143,27 @@ def main():
 
     state = load_state()
 
+    ok = True
     for release in RELEASES:
         try:
             next_date = get_next_release_date(release["release_id"])
             print(f"{release['label']}: 次回 {next_date}")
-            check_and_notify(release["key"], release["label"], next_date, state)
+            ok &= check_and_notify(release["key"], release["label"], next_date, state)
         except Exception as e:
             print(f"[エラー] {release['label']} の取得に失敗: {e}")
+            ok = False
 
     if FOMC_MEETING_DATES:
         next_fomc = get_next_fomc_date()
         print(f"FOMC: 次回 {next_fomc}")
-        check_and_notify("fomc", "FOMC政策金利発表", next_fomc, state)
+        ok &= check_and_notify("fomc", "FOMC政策金利発表", next_fomc, state)
     else:
         print("[情報] FOMC_MEETING_DATES が未設定のため、FOMCリマインドはスキップされました。")
 
+    # 送信できた分の記録は残したうえで、失敗があればワークフローに知らせる
     save_state(state)
-    return 0
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

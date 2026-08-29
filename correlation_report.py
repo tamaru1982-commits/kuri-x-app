@@ -10,6 +10,7 @@ correlation_report.py
 """
 
 import os
+import sys
 import time
 from datetime import datetime
 
@@ -157,16 +158,19 @@ def build_message(corr: pd.DataFrame) -> str:
     return "\n".join(lines)
 
 
-def send_discord_notification(message: str):
+def send_discord_notification(message: str) -> bool:
+    """送信できたかを返す。このスクリプトは通知することだけが目的なので、
+    送信に失敗したまま成功扱いにすると通知が止まっていることに気づけない。"""
     if not DISCORD_WEBHOOK_URL:
         print("[警告] DISCORD_WEBHOOK_URL 未設定のためコンソール出力のみ:")
         print(message)
-        return
+        return True
     resp = requests.post(DISCORD_WEBHOOK_URL, json={"content": message}, timeout=15)
     if resp.status_code >= 300:
         print(f"[エラー] Discord通知失敗: {resp.status_code} {resp.text}")
-    else:
-        print("[OK] 相関レポートを送信しました。")
+        return False
+    print("[OK] 相関レポートを送信しました。")
+    return True
 
 
 def main():
@@ -179,9 +183,8 @@ def main():
     corr = returns.corr()
 
     message = build_message(corr)
-    send_discord_notification(message)
-    return 0
+    return 0 if send_discord_notification(message) else 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

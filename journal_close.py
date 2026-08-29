@@ -8,6 +8,7 @@ journal_add.py で記録したトレードを決済(クローズ)し、損益(pn
 """
 
 import argparse
+import sys
 
 import db_utils
 
@@ -31,4 +32,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

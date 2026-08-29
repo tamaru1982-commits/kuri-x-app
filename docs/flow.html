@@ -153,7 +153,7 @@
         <div class="stage-head"><h2>シグナル検知</h2><span class="tag">自動・常時</span></div>
         <p>4つのソースが独立に判定し、GitHub Actions経由でDiscordに通知します。</p>
         <ul>
-          <li><strong>tech</strong> — SMA9/21クロス + RSI(30分毎)</li>
+          <li><strong>tech</strong> — 日足のSMA9/21クロス + RSI(判定は30分毎)</li>
           <li><strong>dip</strong> — 売られすぎからの反転「⚡覚醒」(30分毎)</li>
           <li><strong>whale</strong> — Whale Alertの大口資金移動(15分毎)</li>
           <li><strong>macro</strong> — 雇用統計×金・ドル・株・VIX・原油・FF金利(月1回)</li>
@@ -176,7 +176,7 @@
           <div class="example">
             <div class="example-label">例:tech確認</div>
             <div class="example-msg">🟢 BTC: LONG | 価格 $80,240 | RSI 45.8</div>
-            <div class="example-verdict">→ 2回連続で同方向を確認済み。トレンド継続とみて購入</div>
+            <div class="example-verdict">→ ゴールデンクロスを検知し、次の判定でも同じ側だったため確定。購入</div>
           </div>
           <div class="example">
             <div class="example-label">例:⚡覚醒(dip反転)</div>
@@ -190,12 +190,13 @@
     <div class="stage auto">
       <div class="num">3</div>
       <div>
-        <div class="stage-head"><h2>保有中の監視</h2><span class="tag">自動・15分毎</span></div>
+        <div class="stage-head"><h2>保有中の監視</h2><span class="tag">自動・30分毎</span></div>
         <p>記録したポジションを、条件を満たすまで繰り返し見張ります。</p>
         <ul>
-          <li>利確目標(既定+5%)に到達したか</li>
-          <li>損切りライン(記録時の<code>stop_loss</code>)を割ったか</li>
+          <li>利確目標に到達したか(銘柄の値動きに応じて設定。BTCなら+4.5%程度)</li>
+          <li>損切りライン(銘柄の値動きに応じて設定。BTCなら-2.7%程度)を割ったか</li>
           <li>その銘柄に新しいSHORTサインが出ていないか</li>
+          <li>保有期限(72時間)に達したか</li>
         </ul>
         <p class="callout">いずれか該当 → Discordへアラート(該当なしなら次のチェックまで待機)</p>
       </div>
@@ -215,7 +216,7 @@
           <div class="example">
             <div class="example-label">例:利確</div>
             <div class="example-msg">🟢 建値 $79,800 → 現在値 $83,900(+5.1%)</div>
-            <div class="example-verdict">→ 利確目標+5%に到達。利益を確定して売却</div>
+            <div class="example-verdict">→ その銘柄の利確目標に到達。利益を確定して売却</div>
           </div>
           <div class="example">
             <div class="example-label">例:損切り</div>
