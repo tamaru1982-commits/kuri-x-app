@@ -112,28 +112,36 @@ def send_discord_notification(message: str) -> bool:
     return True
 
 
-def check_and_notify(key: str, label: str, release_date: str | None, state: dict):
+def check_and_notify(key: str, label: str, release_date: str | None, state: dict) -> bool:
+    """通知が必要なら送る。送信に失敗した場合のみFalseを返す。"""
     if not release_date:
-        return
+        return True
 
     today = datetime.now().date()
     release_dt = datetime.strptime(release_date, "%Y-%m-%d").date()
     days_until = (release_dt - today).days
 
-    if days_until != REMIND_DAYS_BEFORE:
-        return
+    # 「ちょうどN日前」だけを条件にすると、その日の実行が遅延・欠落した時点で
+    # そのリマインドは二度と送られない。発表当日までを対象にしておけば翌日の
+    # 実行で拾える(重複は下のstate判定が防ぐ)。
+    if not (0 <= days_until <= REMIND_DAYS_BEFORE):
+        return True
 
     if state.get(key) == release_date:
         print(f"[{label}] {release_date} は通知済みです。")
-        return
+        return True
 
     lines = [f"**📅 {label} リマインド**", "", f"次回発表日: **{release_date}**"]
     if key == "nfp":
         lines.append(build_nfp_pattern_section())
     lines.append("_※過去の統計的傾向・日程情報であり、結果や値動きを予測・保証するものではありません。_")
 
-    send_discord_notification("\n".join(lines))
+    # 送信できて初めて「通知済み」にする。失敗しても記録してしまうと、
+    # そのリマインドは再送されないまま永久に失われる。
+    if not send_discord_notification("\n".join(lines)):
+        return False
     state[key] = release_date
+    return True
 
 
 def main():
