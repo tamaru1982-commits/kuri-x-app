@@ -1,1 +1,1 @@
-{"confirm": {"SUI": {"pending": "SHORT", "cross_at": "2026-09-04 17:25:30+00:00", "handled_cross_at": null}}, "volatility": {"BTC": 2.397, "ETH": 3.624, "SOL": 3.224, "XRP": 4.529, "HYPE": 4.291, "DOGE": 3.782, "EDGE": 7.962, "TRIA": 9.261, "SUI": 4.131, "AAVE": 5.16}}
+{"confirm": {"SUI": {"handled_cross_at": "2026-09-04 17:25:30+00:00"}}, "volatility": {"BTC": 2.395, "ETH": 3.621, "SOL": 3.223, "XRP": 4.522, "HYPE": 4.302, "DOGE": 3.782, "EDGE": 7.977, "TRIA": 9.015, "SUI": 4.099, "AAVE": 5.162}}
