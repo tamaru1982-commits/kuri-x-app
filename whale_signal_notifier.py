@@ -12,6 +12,7 @@ Whale Alert公式APIは有料だが、そのXアカウントの投稿を読む�
 判定ロジック(簡易的な経験則):
 - BTC/ETH等の主要資産が取引所へ入金された → 売り圧力の可能性(SHORT)
 - ステーブルコイン(USDT/USDC等)が取引所へ入金された → 買い準備の可能性(LONG)
+  (ステーブルコイン自体は価格が動かず検証できないため、BTCのLONGとして記録する)
 - 資産が取引所から出金された → 長期保有の意思表示(LONG)
   (ステーブルコインの出金は市場シグナルとしての意味が薄いため対象外)
 
@@ -44,7 +45,15 @@ TRACKED_ASSETS = {"BTC", "ETH", "SOL", "XRP", "HYPE", "DOGE", "EDGE", "TRIA", "S
 STABLECOINS = {"USDT", "USDC", "BUSD", "DAI", "FDUSD", "TUSD"}
 
 MAX_RESULTS = 10
-COOLDOWN_MINUTES = int(os.environ.get("WHALE_COOLDOWN_MINUTES", "60"))
+# 日足運用に合わせ、同じ銘柄・方向の通知は1日1回までにする
+# (60分だと1か月で140件近く出てしまい、ほとんどがノイズだった)
+COOLDOWN_MINUTES = int(os.environ.get("WHALE_COOLDOWN_MINUTES", "1440"))
+# 2026/8/29〜9/26の実績では、5千万〜1億ドル帯のシグナルは24時間後の平均損益がほぼ0%だった。
+# 金額不明の投稿もこの下限を満たさないものとして扱う
+MIN_AMOUNT_USD = float(os.environ.get("WHALE_MIN_AMOUNT_USD", "100000000"))
+
+# ステーブルコインの入金は「市場全体の買い準備」の意味なので、代表としてBTCで評価する
+STABLECOIN_PROXY_ASSET = "BTC"
 
 STATE_FILE = Path("whale_signal_state.json")
 
@@ -157,13 +166,17 @@ def judge_signal_from_text(text: str) -> dict | None:
     if asset not in TRACKED_ASSETS and asset not in STABLECOINS:
         return None
 
+    if amount_usd is None or amount_usd < MIN_AMOUNT_USD:
+        return None
+
     into_exchange = is_exchange(destination) and not is_exchange(source)
     out_of_exchange = is_exchange(source) and not is_exchange(destination)
 
     if into_exchange:
         if asset in STABLECOINS:
-            reason = "ステーブルコインが取引所へ入金(買い準備の可能性)"
+            reason = f"{asset}が取引所へ入金(買い準備の可能性)"
             signal = "LONG"
+            asset = STABLECOIN_PROXY_ASSET
         else:
             reason = "取引所へ入金(売り圧力の可能性)"
             signal = "SHORT"
