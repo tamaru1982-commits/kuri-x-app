@@ -161,6 +161,7 @@ FRED（セントルイス連邦準備銀行が運営する経済データベー�
 | `economic_calendar_reminder.py` + `economic_calendar_reminder.yml` | NFP/CPI/PCE(+設定すればFOMC)の発表日リマインド(nfp_reminder.pyの後継) |
 | `correlation_report.py` + `correlation_report.yml` | 追跡資産間の相関を週次で通知 |
 | `journal_add.py` / `journal_close.py` / `journal_report.py` | 手動トレード記録・成績集計(ローカルで実行) |
+| `liquidation_note_add.py` + `liquidation_note.yml` | 清算マップ(CoinGlass)を見て判断した「清算の壁」をスマホから記録し、ダッシュボードに表示 |
 
 `crypto_signal_notifier.py` と `x_signal_notifier.py` も、シグナルをDBに記録し、
 クールダウン(同一資産・同一方向の再通知を一定時間抑制)する形に更新されています。
@@ -203,6 +204,18 @@ python journal_report.py
 
 トレード記録も `trading_system.db` に保存されるため、リポジトリにpushしておけば
 どのPCからでも同じ履歴を参照できます(手動でgit push/pullする必要があります)。
+
+### 清算メモの記録(スマホから)
+
+CoinGlassの清算マップを見て気づいた「清算が集中している価格帯」を記録できます。
+
+1. GitHubアプリ(またはブラウザ)でリポジトリを開き、Actions →「Liquidation Note」→「Run workflow」
+2. 銘柄・価格・種類(ロング清算の壁/ショート清算の壁)・メモ・表示時間(既定48時間)を入力して実行
+3. 1〜2分でダッシュボード上部の「清算メモ」に表示されます(期限が過ぎると非表示。記録は残ります)
+
+清算メモは人が判断した参考情報なので、confluence等の自動判定には使っていません。
+PCから `liquidation_note_add.py` を直接実行することもできますが、定期実行のActionsと
+DBのpushが競合しやすいため、基本はActionsからの記録をおすすめします。
 
 ### 移行に関する注意
 

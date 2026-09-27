@@ -7,11 +7,12 @@ SQLiteデータベースのヘルパー関数群。
 テーブル構成:
 - signals: 発生したシグナルの履歴と、後追いでの的中/不的中の記録
 - journal: 手動で記録するトレード日誌
+- liquidation_notes: CoinGlassの清算マップを見て手動で記録する「清算の壁」メモ
 """
 
 import os
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 DB_FILE = Path("trading_system.db")
@@ -103,6 +104,21 @@ def init_db():
     for col, col_type in journal_columns.items():
         if col not in existing_journal_columns:
             conn.execute(f"ALTER TABLE journal ADD COLUMN {col} {col_type}")
+
+    # 清算マップは人が画面を見て判断した内容なので、自動判定(confluence等)には使わず
+    # ダッシュボードに表示するだけにする。誤った手動記録が自動シグナルに混ざるのを避けるため
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS liquidation_notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            asset TEXT NOT NULL,
+            price REAL NOT NULL,            -- 清算が集中していると判断した価格
+            side TEXT NOT NULL,             -- 'long' (ロング清算の壁=下) | 'short' (ショート清算の壁=上)
+            note TEXT,
+            price_at_record REAL,           -- 記録した時点の現在価格(壁までの距離の表示用)
+            valid_until TEXT NOT NULL       -- これを過ぎたらダッシュボードに出さない(削除はしない)
+        )
+    """)
 
     conn.commit()
     conn.close()
@@ -466,3 +482,32 @@ def get_paper_sources() -> list[str]:
 if __name__ == "__main__":
     init_db()
     print(f"[OK] {DB_FILE} を初期化しました。")
+
+
+# ============ liquidation_notes テーブル ============
+
+def add_liquidation_note(asset: str, price: float, side: str, note: str,
+                         price_at_record: float | None, valid_hours: float) -> int:
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    valid_until = (now + timedelta(hours=valid_hours)).isoformat()
+    conn = get_conn()
+    cur = conn.execute(
+        "INSERT INTO liquidation_notes (timestamp, asset, price, side, note, price_at_record, valid_until) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (now.isoformat(), asset, price, side, note, price_at_record, valid_until),
+    )
+    conn.commit()
+    note_id = cur.lastrowid
+    conn.close()
+    return note_id
+
+
+def get_active_liquidation_notes() -> list[sqlite3.Row]:
+    """有効期限内のメモを新しい順に返す。"""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM liquidation_notes WHERE valid_until > ? ORDER BY timestamp DESC",
+        (utc_now_iso(),),
+    ).fetchall()
+    conn.close()
+    return rows

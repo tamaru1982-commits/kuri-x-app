@@ -277,6 +277,41 @@ def render_open_positions(rows) -> str:
     )
 
 
+def hours_ago_label(iso_timestamp: str) -> str:
+    try:
+        elapsed = datetime.now(timezone.utc).replace(tzinfo=None) - datetime.fromisoformat(iso_timestamp)
+    except Exception:
+        return iso_timestamp
+    hours = int(elapsed.total_seconds() // 3600)
+    return "1時間以内" if hours < 1 else f"{hours}時間前"
+
+
+def render_liquidation_notes(rows) -> str:
+    if not rows:
+        return ("<p class='muted'>有効期限内の清算メモはありません"
+                "(Actions の「Liquidation Note」から記録できます)。</p>")
+
+    items = []
+    for r in rows:
+        side_label = "🔻 ロング清算" if r["side"] == "long" else "🔺 ショート清算"
+        distance = "-"
+        if r["price_at_record"]:
+            distance = f"{(r['price'] - r['price_at_record']) / r['price_at_record'] * 100:+.1f}%"
+        items.append(
+            f"<tr data-asset='{html.escape(r['asset'])}'>"
+            f"<td>{hours_ago_label(r['timestamp'])}</td><td>{asset_span(r['asset'])}</td>"
+            f"<td>{side_label}</td><td>{compact_price(r['price'])}</td><td>{distance}</td>"
+            f"<td>{html.escape(r['note'] or '-')}</td></tr>"
+        )
+    note = ("<p class='muted' style='font-size:0.75rem;'>CoinGlassの清算マップを見て手動で記録したメモです。"
+            "距離は記録時点の価格からの差で、自動判定には使っていません。</p>")
+    return (
+        "<table class='filterable'><thead><tr><th>記録</th><th>資産</th><th>種類</th>"
+        "<th>価格</th><th>距離</th><th>メモ</th></tr></thead>"
+        "<tbody>" + "".join(items) + "</tbody></table>" + note
+    )
+
+
 def render_journal_summary(summary) -> str:
     if summary.get("total_trades", 0) == 0:
         return "<p class='muted'>まだ決済済みのトレード記録がありません。</p>"
@@ -358,9 +393,10 @@ def build_html() -> str:
     open_positions = db_utils.get_open_positions(is_paper=False)
     journal_summary = db_utils.get_journal_summary(is_paper=False)
     paper_performance = db_utils.get_paper_performance_by_source(hours=24 * 30)
+    liquidation_notes = db_utils.get_active_liquidation_notes()
 
     now_str = (datetime.now(timezone.utc).replace(tzinfo=None) + JST).strftime("%m-%d %H:%M")
-    asset_options = collect_assets(recent_signals, open_positions, hit_rate)
+    asset_options = collect_assets(recent_signals, open_positions, hit_rate, liquidation_notes)
 
     return f"""<!DOCTYPE html>
 <html lang="ja">
@@ -432,6 +468,11 @@ def build_html() -> str:
   <div class="updated">最終更新: {now_str} ・ <a href="about.html" style="color:#4f8cff">このアプリについて</a> ・ <a href="weekly.html" style="color:#4f8cff">週次レポート</a></div>
 
   {render_asset_filter(asset_options)}
+
+  <section>
+    <h2>清算メモ(手動記録・有効期限内)</h2>
+    {render_liquidation_notes(liquidation_notes)}
+  </section>
 
   <section>
     <h2>保有中ポジション(実トレードのみ)</h2>

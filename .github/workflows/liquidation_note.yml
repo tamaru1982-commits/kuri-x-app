@@ -1,0 +1,87 @@
+# 手動実行のみ: CoinGlassの清算マップを見て判断した「清算の壁」をスマホから記録する。
+# GitHubアプリ(またはブラウザ)の Actions →「Liquidation Note」→「Run workflow」で
+# フォームに入力して実行すると、DBに記録してすぐダッシュボードにも反映する。
+# 手元のPCからDBをpushすると定期実行のActionsと競合するため、記録はこちらで行う。
+
+name: Liquidation Note
+
+on:
+  workflow_dispatch:
+    inputs:
+      asset:
+        description: "銘柄"
+        type: choice
+        default: BTC
+        options: [BTC, ETH, SOL, XRP, HYPE, DOGE, SUI, AAVE, EDGE, TRIA]
+      price:
+        description: "清算が集中している価格(例: 78600)"
+        type: string
+        required: true
+      side:
+        description: "種類"
+        type: choice
+        default: "ロング清算の壁(下)"
+        options: ["ロング清算の壁(下)", "ショート清算の壁(上)"]
+      note:
+        description: "メモ(任意)"
+        type: string
+        required: false
+      hours:
+        description: "ダッシュボードに表示する時間"
+        type: string
+        default: "48"
+
+permissions:
+  contents: write
+
+# リポジトリ(trading_system.db等)に書き込むワークフローは、この共通グループで
+# 直列化する。SQLiteのDBはバイナリでgitがマージできないため、2本が同時に走ると
+# 後からpushした側が弾かれ、その回の記録が丸ごと消える。
+concurrency:
+  group: trading-repo-write
+  cancel-in-progress: false
+
+jobs:
+  add-note:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 依存関係インストール
+        run: pip install requests
+
+      - name: 清算メモを記録
+        # 入力値はシェルに直接埋め込まず環境変数で渡す(メモ欄の記号でコマンドが壊れないように)
+        env:
+          IN_ASSET: ${{ inputs.asset }}
+          IN_PRICE: ${{ inputs.price }}
+          IN_SIDE: ${{ inputs.side }}
+          IN_NOTE: ${{ inputs.note }}
+          IN_HOURS: ${{ inputs.hours }}
+        run: >
+          python liquidation_note_add.py
+          --asset="$IN_ASSET" --price="$IN_PRICE" --side="$IN_SIDE"
+          --note="$IN_NOTE" --hours="$IN_HOURS"
+
+      - name: ダッシュボード再生成
+        run: python dashboard_generator.py
+
+      - name: DB・ダッシュボードをコミット
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add trading_system.db docs/index.html docs/about.html docs/weekly.html
+          git diff --staged --quiet || git commit -m "add liquidation note"
+          # 直列化していても手元からのpushと重なることはあるため、
+          # 弾かれたらリモートを取り込んで再試行する(取り込めない場合は
+          # 黙って失うより落とした方が安全なのでエラー終了する)
+          for attempt in 1 2 3; do
+            if git push; then exit 0; fi
+            echo "pushが弾かれました。リモートを取り込んで再試行します ($attempt/3)"
+            git pull --rebase --autostash || exit 1
+          done
+          git push
