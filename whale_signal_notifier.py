@@ -30,6 +30,7 @@ import os
 import re
 import sys
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
@@ -62,6 +63,11 @@ DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 
 X_API_BASE = "https://api.x.com/2"
 SOURCE_NAME = "whale_flow"
+
+# X APIの前払いクレジットが尽きると402が返り、2026/10/21から10日ほど誰も気づかないまま
+# クジラ検知が止まっていた。失敗のたびに通知すると1日50回以上届くため、
+# 一度知らせたらこの間隔が空くまで再通知しない
+CREDIT_ALERT_INTERVAL_HOURS = 24
 
 # 例: "894 $BTC (69,825,706 USD) transferred from unknown wallet to Coinbase Institutional"
 # 資産シンボルは "$BTC" のようにドル記号(cashtag)で表記される
@@ -221,6 +227,51 @@ def send_discord_notification(tweet_text: str, signal: str, asset: str, reason: 
         print(f"[OK] 通知送信: {signal} ({asset})")
 
 
+def post_discord(message: str):
+    if not DISCORD_WEBHOOK_URL:
+        print("[警告] DISCORD_WEBHOOK_URL 未設定のためコンソール出力のみ:")
+        print(message)
+        return
+    resp = requests.post(DISCORD_WEBHOOK_URL, json={"content": message}, timeout=15)
+    if resp.status_code >= 300:
+        print(f"[エラー] Discord通知失敗: {resp.status_code} {resp.text}")
+
+
+def handle_credit_exhausted(state: dict):
+    """クレジット切れを通知する(前回の通知から間隔が空いている場合のみ)。"""
+    now = datetime.now(timezone.utc)
+    last_alert = state.get("credit_alert_at")
+    if last_alert and now - datetime.fromisoformat(last_alert) < timedelta(hours=CREDIT_ALERT_INTERVAL_HOURS):
+        print("[警告] X APIのクレジット切れが続いています(通知済みのためスキップ)。")
+        return
+
+    if not last_alert:
+        state["credit_out_since"] = now.isoformat()
+    since = datetime.fromisoformat(state.get("credit_out_since", now.isoformat())) + timedelta(hours=9)
+    post_discord(
+        "⚠️ **X APIのクレジットが切れています**\n"
+        f"{since:%m/%d %H:%M}(日本時間)に検知して以降、クジラ監視(@whale_alert)が止まっています。\n"
+        "console.x.com でクレジットをチャージすると、次回の実行から自動で再開します。\n"
+        f"_止まっている間は{CREDIT_ALERT_INTERVAL_HOURS}時間ごとにこの通知を送ります。_"
+    )
+    state["credit_alert_at"] = now.isoformat()
+    save_state(state)
+    print("[警告] X APIのクレジット切れ(402)。Discordに通知しました。")
+
+
+def notify_credit_recovered(state: dict):
+    if not state.get("credit_alert_at"):
+        return
+    post_discord("✅ **X APIのクレジットが復旧しました。** クジラ監視を再開しています。")
+    state.pop("credit_alert_at", None)
+    state.pop("credit_out_since", None)
+    save_state(state)
+
+
+def is_payment_required(e: requests.HTTPError) -> bool:
+    return e.response is not None and e.response.status_code == 402
+
+
 # ============ メイン処理 ============
 
 def fetch_signal_price(asset: str) -> float | None:
@@ -241,16 +292,26 @@ def main():
     db_utils.init_db()
 
     state = load_state()
-    if state.get("user_id") and state.get("username") == TARGET_USERNAME:
-        user_id = state["user_id"]
-    else:
-        user_id = get_user_id(TARGET_USERNAME)
-        state["user_id"] = user_id
-        state["username"] = TARGET_USERNAME
-        save_state(state)  # 後続処理が失敗しても無駄な再取得をしないよう先に保存
+    try:
+        if state.get("user_id") and state.get("username") == TARGET_USERNAME:
+            user_id = state["user_id"]
+        else:
+            user_id = get_user_id(TARGET_USERNAME)
+            state["user_id"] = user_id
+            state["username"] = TARGET_USERNAME
+            save_state(state)  # 後続処理が失敗しても無駄な再取得をしないよう先に保存
 
-    last_seen_id = state.get("last_seen_id")
-    tweets = get_recent_tweets(user_id, last_seen_id)
+        last_seen_id = state.get("last_seen_id")
+        tweets = get_recent_tweets(user_id, last_seen_id)
+    except requests.HTTPError as e:
+        if not is_payment_required(e):
+            raise
+        # 通知済みの時刻を状態ファイルに残さないと毎回通知してしまうため、
+        # ここは正常終了にして後続のコミットステップを走らせる
+        handle_credit_exhausted(state)
+        return 0
+
+    notify_credit_recovered(state)
 
     if not tweets:
         print("新着投稿はありません。")
