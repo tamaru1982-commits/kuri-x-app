@@ -13,8 +13,14 @@ journal_add.pyで記録した**実ポジション**の場合は、Discordでア�
 (売るかどうかは人が判断する)。
 
 paper_trader.pyが自動記録した**ペーパートレード**(is_paper=1)の場合は、
-人の判断を待たず該当条件でその場で自動決済する。これにより、各シグナル
-ソースが実際に儲かる傾向にあるかを実弾なしで継続検証できる。
+人の判断を待たず自動決済する。これにより、各シグナルソースが実際に儲かる
+傾向にあるかを実弾なしで継続検証できる。
+
+ペーパートレードの決済は「今この瞬間の価格」ではなく、建玉してからの値動きの
+経路(約1時間ごとの価格)をたどり、最初に起きた条件の時刻・価格で決済する。
+GitHub Actionsの定期実行は実際には4時間前後おきにしか動かず、現在価格だけを
+見ていると、その間に利確目標に届いて戻った動きを取りこぼしたり、損切りが
+実際より何時間も遅れて大きな損失として記録されたりするため。
 
 crypto_signal_notifier.py実行後を追いかける形で、30分おきの実行を想定。
 
@@ -34,10 +40,12 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pandas as pd
 import requests
 
 import db_utils
 import price_utils
+from target_tracker import fetch_price_series
 
 TARGET_PROFIT_PCT = float(os.environ.get("POSITION_TARGET_PROFIT_PCT", "5.0"))
 ALERT_COOLDOWN_HOURS = float(os.environ.get("POSITION_ALERT_COOLDOWN_HOURS", "12"))
@@ -125,7 +133,7 @@ def build_paper_close_message(row, market_price: float, fee_adjusted_pnl_pct: fl
     「ご検討ください」ではなく「決済しました」の報告として通知する。
     損益は往復手数料(既定0.3%)を差し引いた実態に近い値を表示する。"""
     lines = [f"**📝 ペーパートレード決済: {row['asset']}**", ""]
-    lines.append(f"建値 ${row['entry_price']:,.4f} → 市場価格 ${market_price:,.4f}")
+    lines.append(f"建値 ${row['entry_price']:,.4f} → 決済価格 ${market_price:,.4f}")
     lines.append(f"手数料(往復{PAPER_FEE_PCT * 2:.2f}%)考慮後 損益: {fee_adjusted_pnl_pct:+.2f}%")
     if row["source"]:
         lines.append(f"シグナル元: {row['source']}")
@@ -146,6 +154,102 @@ def build_paper_close_message(row, market_price: float, fee_adjusted_pnl_pct: fl
         f"シグナルソース別の実力を検証するための記録です。投資助言ではありません。_"
     )
     return "\n".join(lines)
+
+
+def get_tech_short_signals_since(asset: str, since_iso: str) -> list:
+    conn = db_utils.get_conn()
+    rows = conn.execute(
+        "SELECT timestamp, price_at_signal FROM signals WHERE source = 'crypto_technical' AND asset = ? "
+        "AND direction = 'SHORT' AND timestamp > ? ORDER BY timestamp",
+        (asset, since_iso),
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+def find_paper_exit(row, series: pd.Series, now: pd.Timestamp, current_price: float | None,
+                    short_signals: list) -> tuple[pd.Timestamp, float, str] | None:
+    """建玉後の値動きをたどり、最初に起きた決済条件の(時刻, 価格, 種類)を返す。
+    まだどの条件も起きていなければNone。LONGのみ対応(ペーパートレードはLONGのみ建てる)。
+
+    損切り・利確はその価格で約定したものとみなす(逆指値・指値を置いていた想定)。"""
+    entry_time = pd.Timestamp(datetime.fromisoformat(row["timestamp"])).tz_localize("UTC")
+    entry = row["entry_price"]
+    target_pct = row["target_pct"] if row["target_pct"] is not None else TARGET_PROFIT_PCT
+    target_price = entry * (1 + target_pct / 100)
+    stop_price = row["stop_loss"]
+    deadline = entry_time + pd.Timedelta(hours=MAX_HOLD_HOURS)
+
+    path = series[series.index > entry_time]
+    if current_price is not None:
+        # 時系列の最後の点から今までの動きも拾うため、現在価格を末尾に足す
+        path = pd.concat([path, pd.Series([current_price], index=[now])])
+
+    events = []
+    for ts, price in path.items():
+        if ts > deadline:
+            break
+        if stop_price is not None and price <= stop_price:
+            events.append((ts, stop_price, "stop_loss"))
+            break
+        if price >= target_price:
+            events.append((ts, target_price, "take_profit"))
+            break
+
+    for sig in short_signals:
+        sig_time = pd.Timestamp(datetime.fromisoformat(sig["timestamp"])).tz_localize("UTC")
+        if sig_time <= deadline and sig["price_at_signal"]:
+            events.append((sig_time, sig["price_at_signal"], "tech_short"))
+            break
+
+    if not events and now >= deadline:
+        # 期限の時点の価格で手仕舞う(期限直後の最初の価格。無ければ現在価格)
+        after_deadline = path[path.index >= deadline]
+        price_at_deadline = float(after_deadline.iloc[0]) if not after_deadline.empty else current_price
+        if price_at_deadline is not None:
+            events.append((deadline, price_at_deadline, "time_exit"))
+
+    return min(events, key=lambda e: e[0]) if events else None
+
+
+def settle_paper_positions(positions: list, prices: dict):
+    now = pd.Timestamp(datetime.now(timezone.utc))
+    by_asset: dict[str, list] = {}
+    for row in positions:
+        by_asset.setdefault(row["asset"], []).append(row)
+
+    for asset, rows in by_asset.items():
+        coin_id = price_utils.SYMBOL_TO_COINGECKO_ID.get(asset)
+        if not coin_id:
+            print(f"[スキップ] {asset}: 価格の対応表に無い銘柄です")
+            continue
+        try:
+            series = fetch_price_series(coin_id)
+        except Exception as e:
+            # 現在価格だけで決済すると経路判定と基準が混ざるため、この回は見送って次回に回す
+            print(f"[エラー] {asset} の値動き取得に失敗したため、ペーパー決済判定を次回に回します: {e}")
+            continue
+
+        for row in rows:
+            short_signals = get_tech_short_signals_since(asset, row["timestamp"])
+            exit_event = find_paper_exit(row, series, now, prices.get(asset), short_signals)
+            if exit_event is None:
+                current = prices.get(asset)
+                pnl_note = f"含み損益{(current - row['entry_price']) / row['entry_price'] * 100:+.2f}%" if current else "価格不明"
+                print(f"{asset} (id={row['id']}, ペーパー): {pnl_note} (決済条件なし)")
+                continue
+
+            exit_time, exit_price, exit_type = exit_event
+            # 記録するexit_priceには往復手数料を織り込み、成績が実態より良く見えないようにする
+            fee_adjusted_exit = exit_price * (1 - (2 * PAPER_FEE_PCT / 100))
+            fee_adjusted_pnl_pct = (fee_adjusted_exit - row["entry_price"]) / row["entry_price"] * 100
+            exit_iso = exit_time.tz_convert("UTC").tz_localize(None).isoformat()
+
+            db_utils.close_journal_entry(row["id"], fee_adjusted_exit, exit_timestamp=exit_iso)
+            target_pct = row["target_pct"] if row["target_pct"] is not None else TARGET_PROFIT_PCT
+            send_discord_notification(build_paper_close_message(row, exit_price, fee_adjusted_pnl_pct, [exit_type], target_pct))
+            print(f"[ペーパー決済] {asset} (id={row['id']}, source={row['source']}): {exit_type} @ {exit_iso} "
+                  f"/ 手数料考慮後損益{fee_adjusted_pnl_pct:+.2f}%")
 
 
 def send_discord_notification(message: str):
@@ -179,7 +283,11 @@ def main():
         save_state(state)
         return 0
 
+    settle_paper_positions([row for row in positions if row["is_paper"]], prices)
+
     for row in positions:
+        if row["is_paper"]:
+            continue
         asset = row["asset"]
         current_price = prices.get(asset)
         if current_price is None:
@@ -222,27 +330,10 @@ def main():
             for alert_type in alert_types:
                 mark_alerted(state, row["id"], alert_type)
 
-            if row["is_paper"]:
-                # ペーパートレードは人の判断を待たず、条件を満たした時点で自動決済する。
-                # 記録するexit_priceには往復手数料を織り込み、成績が実態より良く見えないようにする。
-                fee_multiplier = 1 - (2 * PAPER_FEE_PCT / 100)
-                if row["direction"] == "LONG":
-                    fee_adjusted_exit = current_price * fee_multiplier
-                    fee_adjusted_pnl_pct = (fee_adjusted_exit - row["entry_price"]) / row["entry_price"] * 100
-                else:
-                    fee_adjusted_exit = current_price / fee_multiplier
-                    fee_adjusted_pnl_pct = (row["entry_price"] - fee_adjusted_exit) / row["entry_price"] * 100
-
-                db_utils.close_journal_entry(row["id"], fee_adjusted_exit)
-                send_discord_notification(build_paper_close_message(row, current_price, fee_adjusted_pnl_pct, alert_types, target_profit_pct))
-                print(f"[ペーパー決済] {asset} (id={row['id']}, source={row['source']}): "
-                      f"{','.join(alert_types)} / 手数料考慮後損益{fee_adjusted_pnl_pct:+.2f}%(市場{pnl_pct:+.2f}%)")
-            else:
-                send_discord_notification(build_alert_message(row, current_price, pnl_pct, alert_types, target_profit_pct))
-                print(f"[通知] {asset} (id={row['id']}): {','.join(alert_types)} / 含み損益{pnl_pct:+.2f}%")
+            send_discord_notification(build_alert_message(row, current_price, pnl_pct, alert_types, target_profit_pct))
+            print(f"[通知] {asset} (id={row['id']}): {','.join(alert_types)} / 含み損益{pnl_pct:+.2f}%")
         else:
-            kind = "ペーパー" if row["is_paper"] else "実"
-            print(f"{asset} (id={row['id']}, {kind}): 含み損益{pnl_pct:+.2f}% (通知条件なし)")
+            print(f"{asset} (id={row['id']}, 実): 含み損益{pnl_pct:+.2f}% (通知条件なし)")
 
     save_state(state)
     return 0

@@ -60,11 +60,17 @@ jobs:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
         run: python nfp_pattern_analysis.py
 
+      - name: ペーパートレード建玉
+        # 定期実行は実際には4時間前後おきにしか動かないため、paper_trader.yml単独だと
+        # シグナルの88%が「発生から60分超」で建玉されずに捨てられていた。
+        # シグナルを出した直後の同じジョブで建玉して、時間差が出ないようにする
+        run: python paper_trader.py
+
       - name: DBをコミット
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add trading_system.db
+          git add trading_system.db paper_trader_state.json
           # 上の集計が失敗するとファイルが生成されず、存在しないパスへのgit addで
           # コミット手順ごと落ちてマクロシグナルの記録まで失われるため存在確認する
           if [ -f nfp_patterns.json ]; then git add nfp_patterns.json; fi

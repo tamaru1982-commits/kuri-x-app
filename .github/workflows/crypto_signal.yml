@@ -44,11 +44,17 @@ jobs:
           # CRYPTO_COOLDOWN_MINUTES: ${{ secrets.CRYPTO_COOLDOWN_MINUTES }}
         run: python crypto_signal_notifier.py
 
+      - name: ペーパートレード建玉
+        # 定期実行は実際には4時間前後おきにしか動かないため、paper_trader.yml単独だと
+        # シグナルの88%が「発生から60分超」で建玉されずに捨てられていた。
+        # シグナルを出した直後の同じジョブで建玉して、時間差が出ないようにする
+        run: python paper_trader.py
+
       - name: DB・状態ファイルをコミット
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add trading_system.db crypto_signal_state.json
+          git add trading_system.db crypto_signal_state.json paper_trader_state.json
           git diff --staged --quiet || git commit -m "update signal log (crypto)"
           # 直列化していても手動実行や手元からのpushと重なることはあるため、
           # 弾かれたらリモートを取り込んで再試行する(取り込めない場合は

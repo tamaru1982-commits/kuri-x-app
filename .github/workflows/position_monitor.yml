@@ -32,7 +32,7 @@ jobs:
           python-version: "3.11"
 
       - name: 依存関係インストール
-        run: pip install requests
+        run: pip install requests pandas
 
       - name: ポジション監視
         env:

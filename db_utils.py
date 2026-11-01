@@ -324,7 +324,9 @@ def add_journal_entry(asset: str, direction: str, entry_price: float, size: floa
     return entry_id
 
 
-def close_journal_entry(entry_id: int, exit_price: float):
+def close_journal_entry(entry_id: int, exit_price: float, exit_timestamp: str | None = None):
+    """exit_timestampを省略すると現在時刻で決済する(手動決済用)。
+    ペーパートレードは値動きの経路から決済時刻を割り出すため、その時刻を渡す。"""
     conn = get_conn()
     row = conn.execute("SELECT * FROM journal WHERE id = ?", (entry_id,)).fetchone()
     if not row:
@@ -338,7 +340,7 @@ def close_journal_entry(entry_id: int, exit_price: float):
 
     conn.execute(
         "UPDATE journal SET exit_price = ?, exit_timestamp = ?, pnl = ?, status = 'closed' WHERE id = ?",
-        (exit_price, utc_now_iso(), pnl, entry_id),
+        (exit_price, exit_timestamp or utc_now_iso(), pnl, entry_id),
     )
     conn.commit()
     conn.close()
