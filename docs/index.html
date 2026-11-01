@@ -65,13 +65,18 @@
 </head>
 <body>
   <h1>🪙 シグナル状況ダッシュボード</h1>
-  <div class="updated">最終更新: 11-01 20:46 ・ <a href="about.html" style="color:#4f8cff">このアプリについて</a> ・ <a href="weekly.html" style="color:#4f8cff">週次レポート</a></div>
+  <div class="updated">最終更新: 11-01 22:48 ・ <a href="about.html" style="color:#4f8cff">このアプリについて</a> ・ <a href="weekly.html" style="color:#4f8cff">週次レポート</a></div>
 
   <div class='filter-bar'><label class='chip'><input type='checkbox' class='asset-toggle' value='AAVE' checked><span class='asset' style='color:#ff5c5c'>AAVE</span></label><label class='chip'><input type='checkbox' class='asset-toggle' value='BTC' checked><span class='asset' style='color:#f7931a'>BTC</span></label><label class='chip'><input type='checkbox' class='asset-toggle' value='DOGE' checked><span class='asset' style='color:#f0c419'>DOGE</span></label><label class='chip'><input type='checkbox' class='asset-toggle' value='EDGE' checked><span class='asset' style='color:#2dd4bf'>EDGE</span></label><label class='chip'><input type='checkbox' class='asset-toggle' value='ETH' checked><span class='asset' style='color:#9fa8ff'>ETH</span></label><label class='chip'><input type='checkbox' class='asset-toggle' value='HYPE' checked><span class='asset' style='color:#ff6ec7'>HYPE</span></label><label class='chip'><input type='checkbox' class='asset-toggle' value='SOL' checked><span class='asset' style='color:#4df3c4'>SOL</span></label><label class='chip'><input type='checkbox' class='asset-toggle' value='SUI' checked><span class='asset' style='color:#4f8cff'>SUI</span></label><label class='chip'><input type='checkbox' class='asset-toggle' value='TRIA' checked><span class='asset' style='color:#c084fc'>TRIA</span></label><label class='chip'><input type='checkbox' class='asset-toggle' value='XRP' checked><span class='asset' style='color:#5ac8fa'>XRP</span></label></div>
 
   <section>
     <h2>清算メモ(手動記録・有効期限内)</h2>
-    <table class='filterable'><thead><tr><th>記録</th><th>資産</th><th>種類</th><th>価格</th><th>距離</th><th>メモ</th></tr></thead><tbody><tr data-asset='BTC'><td>1時間以内</td><td><span class='asset' style='color:#f7931a'>BTC</span></td><td>🔺 ショート清算</td><td>$78,600</td><td>+0.9%</td><td>-</td></tr><tr data-asset='BTC'><td>1時間以内</td><td><span class='asset' style='color:#f7931a'>BTC</span></td><td>🔻 ロング清算</td><td>$77,000</td><td>-1.1%</td><td>-</td></tr></tbody></table><p class='muted' style='font-size:0.75rem;'>CoinGlassの清算マップを見て手動で記録したメモです。距離は記録時点の価格からの差で、自動判定には使っていません。</p>
+    <table class='filterable'><thead><tr><th>記録</th><th>資産</th><th>種類</th><th>価格</th><th>距離</th><th>メモ</th></tr></thead><tbody><tr data-asset='BTC'><td>2時間前</td><td><span class='asset' style='color:#f7931a'>BTC</span></td><td>🔺 ショート清算</td><td>$78,600</td><td>+0.9%</td><td>-</td></tr><tr data-asset='BTC'><td>2時間前</td><td><span class='asset' style='color:#f7931a'>BTC</span></td><td>🔻 ロング清算</td><td>$77,000</td><td>-1.1%</td><td>-</td></tr></tbody></table><p class='muted' style='font-size:0.75rem;'>CoinGlassの清算マップを見て手動で記録したメモです。距離は記録時点の価格からの差で、自動判定には使っていません。</p>
+  </section>
+
+  <section>
+    <h2>清算メモの検証結果(壁に届いたか・その後どう動いたか)</h2>
+    <p class='muted'>まだ検証済みの清算メモはありません(表示期限が過ぎたメモから順に自動で検証されます)。</p>
   </section>
 
   <section>
@@ -106,7 +111,7 @@
 
   <section>
     <h2>直近のシグナル(72時間以内・最大30件)</h2>
-    <table class='filterable'><thead><tr><th>時刻</th><th>ソース</th><th>資産</th><th>方向・根拠</th></tr></thead><tbody><tr data-asset='HYPE'><td>11-01 17:52</td><td>tech</td><td><span class='asset' style='color:#ff6ec7'>HYPE</span></td><td title='RSI60'>🟢 LONG<span class='basis'> · $88.16 · RSI60</span></td></tr><tr data-asset='EDGE'><td>10-30 15:15</td><td>tech</td><td><span class='asset' style='color:#2dd4bf'>EDGE</span></td><td title='RSI43'>🟢 LONG<span class='basis'> · $0.3306 · RSI43</span></td></tr></tbody></table>
+    <table class='filterable'><thead><tr><th>時刻</th><th>ソース</th><th>資産</th><th>方向・根拠</th></tr></thead><tbody><tr data-asset='BTC' class='whale-surge'><td>11-01 21:25</td><td>whale</td><td><span class='asset' style='color:#f7931a'>BTC</span></td><td title='取引所へ入金(売り圧力の可能性) $125,061,535'>🐋 SHORT<span class='basis'> · $77,708 · 取引所へ入金(売り圧力の可能性) $125,…</span></td></tr><tr data-asset='BTC' class='whale-surge'><td>11-01 21:25</td><td>whale</td><td><span class='asset' style='color:#f7931a'>BTC</span></td><td title='取引所から出金(長期保有の意思表示) $234,400,574'>🐋 LONG<span class='basis'> · $77,708 · 取引所から出金(長期保有の意思表示) $23…</span></td></tr><tr data-asset='HYPE'><td>11-01 17:52</td><td>tech</td><td><span class='asset' style='color:#ff6ec7'>HYPE</span></td><td title='RSI60'>🟢 LONG<span class='basis'> · $88.16 · RSI60</span></td></tr><tr data-asset='EDGE'><td>10-30 15:15</td><td>tech</td><td><span class='asset' style='color:#2dd4bf'>EDGE</span></td><td title='RSI43'>🟢 LONG<span class='basis'> · $0.3306 · RSI43</span></td></tr></tbody></table>
   </section>
 
   <div class="disclaimer">

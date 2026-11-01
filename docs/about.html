@@ -103,6 +103,25 @@
     <p>ダッシュボードの「ソース」欄に表示される略称と、それぞれの判定根拠です。</p>
 
     <div class="source-card">
+      <div><span class="name">brk</span><span class="tag">crypto_breakout</span></div>
+      <p>
+        <strong>終値が直近20日間の最高終値を上抜けた日</strong>に、買い候補として通知します(日足)。
+        上抜けが続いている間は毎日出さず、新たに上抜けた日だけ出します。
+      </p>
+      <p>
+        売りは利確目標を置かず、<strong>買った後の最高値(終値)から「日次変動率×2」下がったら手仕舞い</strong>
+        (トレーリングストップ)。上がり続ける限り持ち続けます。ペーパートレードもこのルールで決済します。
+      </p>
+      <div class="note">
+        <strong>2026年11月に追加しました。</strong>2019〜2026年の日足で8銘柄をバックテストしたところ、
+        tech(SMAクロス)とdip(RSI反転)は「適当な日に買うのと変わらない」結果だった一方、
+        このルールは前半(2019〜22年)・後半(2023年〜)のどちらでもプラスでした。
+        上昇相場の利益は「ただ持つ」に劣りますが、2022年の下落相場ではただ持つ場合の-72%に対して
+        -19%に留まりました。tech・dipとはしばらく並行して記録し、成績を比べます。
+      </div>
+    </div>
+
+    <div class="source-card">
       <div><span class="name">tech</span><span class="tag">crypto_technical</span></div>
       <p>
         CoinGeckoの価格(<strong>日足</strong>・過去120日分)から、<strong>SMA9とSMA21のクロス + RSI(14)</strong>で判定する
@@ -179,7 +198,7 @@
         <li>🐳 超大口(メガクジラ): $100M以上</li>
       </ul>
       <p><strong>これまでに検知したクジラの規模分布(ざっくり):</strong></p>
-      <div style='margin-bottom:8px;'><div style='display:flex;justify-content:space-between;font-size:0.85rem;'><span>🐳 超大口(メガクジラ)</span><span>67件 (40.9%)</span></div><div style='background:#262a33;border-radius:4px;height:8px;overflow:hidden;'><div style='background:#4f8cff;height:100%;width:40.9%;'></div></div></div><div style='margin-bottom:8px;'><div style='display:flex;justify-content:space-between;font-size:0.85rem;'><span>🐋 大口</span><span>95件 (57.9%)</span></div><div style='background:#262a33;border-radius:4px;height:8px;overflow:hidden;'><div style='background:#4f8cff;height:100%;width:57.9%;'></div></div></div><div style='margin-bottom:8px;'><div style='display:flex;justify-content:space-between;font-size:0.85rem;'><span>🐬 中口</span><span>2件 (1.2%)</span></div><div style='background:#262a33;border-radius:4px;height:8px;overflow:hidden;'><div style='background:#4f8cff;height:100%;width:1.2%;'></div></div></div><div style='margin-bottom:8px;'><div style='display:flex;justify-content:space-between;font-size:0.85rem;'><span>🐟 小口</span><span>0件 (0.0%)</span></div><div style='background:#262a33;border-radius:4px;height:8px;overflow:hidden;'><div style='background:#4f8cff;height:100%;width:0.0%;'></div></div></div><p class='muted' style='font-size:0.75rem;'>合計164件(金額判明分)を集計。金額不明2件は除外。あくまで簡易集計で、傾向をざっくり把握するためのものです。</p>
+      <div style='margin-bottom:8px;'><div style='display:flex;justify-content:space-between;font-size:0.85rem;'><span>🐳 超大口(メガクジラ)</span><span>69件 (41.6%)</span></div><div style='background:#262a33;border-radius:4px;height:8px;overflow:hidden;'><div style='background:#4f8cff;height:100%;width:41.6%;'></div></div></div><div style='margin-bottom:8px;'><div style='display:flex;justify-content:space-between;font-size:0.85rem;'><span>🐋 大口</span><span>95件 (57.2%)</span></div><div style='background:#262a33;border-radius:4px;height:8px;overflow:hidden;'><div style='background:#4f8cff;height:100%;width:57.2%;'></div></div></div><div style='margin-bottom:8px;'><div style='display:flex;justify-content:space-between;font-size:0.85rem;'><span>🐬 中口</span><span>2件 (1.2%)</span></div><div style='background:#262a33;border-radius:4px;height:8px;overflow:hidden;'><div style='background:#4f8cff;height:100%;width:1.2%;'></div></div></div><div style='margin-bottom:8px;'><div style='display:flex;justify-content:space-between;font-size:0.85rem;'><span>🐟 小口</span><span>0件 (0.0%)</span></div><div style='background:#262a33;border-radius:4px;height:8px;overflow:hidden;'><div style='background:#4f8cff;height:100%;width:0.0%;'></div></div></div><p class='muted' style='font-size:0.75rem;'>合計166件(金額判明分)を集計。金額不明2件は除外。あくまで簡易集計で、傾向をざっくり把握するためのものです。</p>
     </div>
 
     <div class="source-card">
@@ -373,11 +392,18 @@
         手仕舞うところまでが戦略です。これが無いと決着しないポジションが永久に残り、
         「大きく動いたトレードだけ」が集計対象になって成績が偏ります。</span></li>
       <li><strong>発生から60分を超えた古いシグナルは建玉しません</strong>
-        (建値と現在価格の時間差がそのまま損益として記録され、検証が壊れるため)</li>
+        (建値と現在価格の時間差がそのまま損益として記録され、検証が壊れるため)。
+        2026年11月からは、シグナルを出したワークフローの中で続けて建玉するようにしました
+        <br><span class="muted">GitHub Actionsの定期実行は実際には4時間前後おきにしか動かず、
+        ペーパートレード単独の実行を待っていると、LONGシグナルの約88%がこの60分ルールで捨てられていました。</span></li>
       <li><strong>同じ資産・同じソースで保有中の場合は建て増ししません</strong>
         (1つの相場への賭けを複数トレードとして数えると、勝率も複利計算も実態から離れるため)</li>
-      <li>決済は<code>position_monitor.py</code>が兼務: 利確+5%到達・損切りライン到達・
-        テクニカルSHORT発生のいずれかで、<strong>人の判断を待たず自動的に決済</strong></li>
+      <li>決済は<code>position_monitor.py</code>が兼務: 利確目標到達・損切りライン到達・
+        テクニカルSHORT発生・保有期限のいずれかで、<strong>人の判断を待たず自動的に決済</strong>
+        <br><span class="muted">実行時点の価格ではなく、建玉してからの約1時間ごとの値動きをたどって
+        <strong>最初に起きた条件の時刻・価格で決済</strong>します(利確・損切りは指値・逆指値を置いていた想定で、
+        その価格で約定したものとみなします)。実行間隔が空いても、その間に利確目標に届いて戻った動きや、
+        損切りの遅れが成績に混ざらないようにするためです。</span></li>
       <li>決済価格には<strong>往復手数料(既定0.3%)を織り込み済み</strong>で、成績が
         実態より良く見えすぎないようにしています</li>
       <li>ソース別の成績推移(今週/先週/全期間)、および「5万円スタートで複利運用したら
