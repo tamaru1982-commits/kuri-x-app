@@ -33,14 +33,21 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: 依存パッケージのインストール
+        run: pip install requests
+
+      # 資金調達率・恐怖強欲指数を記録する。失敗してもダッシュボード生成は続ける
+      - name: 市場の過熱感を記録
+        run: python market_sentiment.py
+
       - name: ダッシュボード生成
         run: python dashboard_generator.py
 
-      - name: docs/*.htmlをコミット
+      - name: docs/*.htmlとDBをコミット
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/index.html docs/about.html docs/weekly.html
+          git add docs/index.html docs/about.html docs/weekly.html trading_system.db
           git diff --staged --quiet || git commit -m "update dashboard"
           # 直列化していても手動実行や手元からのpushと重なることはあるため、
           # 弾かれたらリモートを取り込んで再試行する(取り込めない場合は

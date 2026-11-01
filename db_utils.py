@@ -134,6 +134,26 @@ def init_db():
         if col not in existing_note_columns:
             conn.execute(f"ALTER TABLE liquidation_notes ADD COLUMN {col} {col_type}")
 
+    # market_sentiment.py用: 資金調達率・建玉・恐怖強欲指数のスナップショット。
+    # 今は表示のみだが、貯めた履歴で「過熱時はブレイクを見送る」等のフィルタを後から検証する
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS funding_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            asset TEXT NOT NULL,
+            funding_8h_pct REAL,            -- 8時間あたりに換算した資金調達率(%)
+            open_interest_usd REAL,
+            mark_price REAL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS fear_greed (
+            date TEXT PRIMARY KEY,          -- 指数の対象日(UTC, YYYY-MM-DD)
+            value INTEGER NOT NULL,
+            classification TEXT
+        )
+    """)
+
     conn.commit()
     conn.close()
 
@@ -556,5 +576,71 @@ def get_evaluated_liquidation_notes() -> list[sqlite3.Row]:
     rows = conn.execute(
         "SELECT * FROM liquidation_notes WHERE eval_result IS NOT NULL ORDER BY timestamp DESC"
     ).fetchall()
+    conn.close()
+    return rows
+
+
+# ============ funding_snapshots / fear_greed テーブル ============
+
+def get_last_funding_snapshot_time() -> str | None:
+    conn = get_conn()
+    row = conn.execute("SELECT MAX(timestamp) AS ts FROM funding_snapshots").fetchone()
+    conn.close()
+    return row["ts"]
+
+
+def add_funding_snapshots(rows: list[dict]):
+    """rows: [{asset, funding_8h_pct, open_interest_usd, mark_price}] を同じ時刻で記録する。"""
+    now = utc_now_iso()
+    conn = get_conn()
+    conn.executemany(
+        "INSERT INTO funding_snapshots (timestamp, asset, funding_8h_pct, open_interest_usd, mark_price) "
+        "VALUES (?, ?, ?, ?, ?)",
+        [(now, r["asset"], r["funding_8h_pct"], r["open_interest_usd"], r["mark_price"]) for r in rows],
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_latest_funding_snapshots() -> list[dict]:
+    """銘柄ごとの最新スナップショットに、約24時間前(20〜28時間前で最も近いもの)の建玉を添えて返す。"""
+    conn = get_conn()
+    latest = conn.execute(
+        "SELECT f.* FROM funding_snapshots f JOIN "
+        "(SELECT asset, MAX(timestamp) AS ts FROM funding_snapshots GROUP BY asset) m "
+        "ON f.asset = m.asset AND f.timestamp = m.ts ORDER BY f.asset"
+    ).fetchall()
+    out = []
+    for r in latest:
+        ts = datetime.fromisoformat(r["timestamp"])
+        lo, hi = (ts - timedelta(hours=28)).isoformat(), (ts - timedelta(hours=20)).isoformat()
+        prev = conn.execute(
+            "SELECT open_interest_usd FROM funding_snapshots WHERE asset = ? AND timestamp BETWEEN ? AND ? "
+            "ORDER BY ABS(julianday(timestamp) - julianday(?)) LIMIT 1",
+            (r["asset"], lo, hi, (ts - timedelta(hours=24)).isoformat()),
+        ).fetchone()
+        item = dict(r)
+        item["oi_24h_ago"] = prev["open_interest_usd"] if prev else None
+        out.append(item)
+    conn.close()
+    return out
+
+
+def upsert_fear_greed(rows: list[dict]):
+    """rows: [{date, value, classification}]。同じ日付は最新の値で上書きする(当日分は日中に更新されるため)。"""
+    conn = get_conn()
+    conn.executemany(
+        "INSERT INTO fear_greed (date, value, classification) VALUES (?, ?, ?) "
+        "ON CONFLICT(date) DO UPDATE SET value = excluded.value, classification = excluded.classification",
+        [(r["date"], r["value"], r["classification"]) for r in rows],
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_recent_fear_greed(days: int = 8) -> list[sqlite3.Row]:
+    """新しい順に返す。"""
+    conn = get_conn()
+    rows = conn.execute("SELECT * FROM fear_greed ORDER BY date DESC LIMIT ?", (days,)).fetchall()
     conn.close()
     return rows

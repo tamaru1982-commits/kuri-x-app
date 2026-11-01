@@ -163,6 +163,7 @@ FRED（セントルイス連邦準備銀行が運営する経済データベー�
 | `journal_add.py` / `journal_close.py` / `journal_report.py` | 手動トレード記録・成績集計(ローカルで実行) |
 | `liquidation_note_add.py` + `liquidation_note.yml` | 清算マップ(CoinGlass)を見て判断した「清算の壁」をスマホから記録し、ダッシュボードに表示 |
 | `liquidation_tracker.py`(`target_tracker.yml`から実行) | 記録した清算の壁に価格が届いたか・届いた後に反転/突破したかを事後検証し、ダッシュボードに表示 |
+| `market_sentiment.py`(`dashboard.yml`から実行) | 資金調達率・建玉(Hyperliquid)と恐怖・強欲指数(alternative.me)を記録し、ダッシュボード上部に表示。今は表示のみで判定には未使用 |
 | `backtest/` | 過去の日足でシグナルと売り方を検証するスクリプト(手元で実行)。結果の要約は下の「バックテスト」参照 |
 
 `crypto_signal_notifier.py` と `x_signal_notifier.py` も、シグナルをDBに記録し、

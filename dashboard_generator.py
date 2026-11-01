@@ -287,6 +287,78 @@ def hours_ago_label(iso_timestamp: str) -> str:
     return "1時間以内" if hours < 1 else f"{hours}時間前"
 
 
+FEAR_GREED_LABELS = {
+    "Extreme Fear": "極度の恐怖",
+    "Fear": "恐怖",
+    "Neutral": "中立",
+    "Greed": "強欲",
+    "Extreme Greed": "極度の強欲",
+}
+
+# 8時間換算の資金調達率の目安。0.01%が平常時の基準値(多くの取引所の既定値)
+FUNDING_HOT_PCT = 0.03
+FUNDING_COLD_PCT = -0.01
+
+
+def fear_greed_color(value: int) -> str:
+    if value <= 25:
+        return "#5ac8fa"
+    if value >= 75:
+        return "#ff5c5c"
+    if value >= 55:
+        return "#f0c419"
+    return "#e6e6e6"
+
+
+def render_fear_greed(rows) -> str:
+    if not rows:
+        return "<p class='muted'>恐怖・強欲指数はまだ取得されていません。</p>"
+    latest = rows[0]
+    label = FEAR_GREED_LABELS.get(latest["classification"], latest["classification"] or "-")
+    tiles = [
+        f"<div class='stat'><span class='label'>恐怖・強欲指数({latest['date'][5:]})</span>"
+        f"<span class='value' style='color:{fear_greed_color(latest['value'])}'>{latest['value']} {label}</span></div>"
+    ]
+    if len(rows) > 1:
+        tiles.append(f"<div class='stat'><span class='label'>前日</span><span class='value'>{rows[1]['value']}</span></div>")
+    if len(rows) >= 8:
+        tiles.append(f"<div class='stat'><span class='label'>1週間前</span><span class='value'>{rows[7]['value']}</span></div>")
+    return "<div class='stats'>" + "".join(tiles) + "</div>"
+
+
+def render_funding(rows) -> str:
+    if not rows:
+        return "<p class='muted'>資金調達率はまだ取得されていません。</p>"
+    items = []
+    for r in rows:
+        rate = r["funding_8h_pct"]
+        if rate is None:
+            status = "-"
+        elif rate >= FUNDING_HOT_PCT:
+            status = "🔥 ロング過熱"
+        elif rate <= FUNDING_COLD_PCT:
+            status = "🧊 ショート優勢"
+        else:
+            status = "平常"
+        oi_change = "-"
+        if r["oi_24h_ago"] and r["open_interest_usd"]:
+            oi_change = f"{(r['open_interest_usd'] / r['oi_24h_ago'] - 1) * 100:+.1f}%"
+        rate_text = f"{rate:+.4f}%" if rate is not None else "-"
+        items.append(
+            f"<tr data-asset='{html.escape(r['asset'])}'>"
+            f"<td>{asset_span(r['asset'])}</td><td>{rate_text}</td><td>{status}</td><td>{oi_change}</td></tr>"
+        )
+    updated = hours_ago_label(max(r["timestamp"] for r in rows))
+    note = ("<p class='muted' style='font-size:0.75rem;'>資金調達率はHyperliquidの値を8時間あたりに換算したもの"
+            f"(平常時は+0.01%前後、+{FUNDING_HOT_PCT}%以上でロング過熱)。建玉24h変化は約24時間前の記録との比較で、"
+            f"記録がまだ無い間は「-」。取得: {updated}。今は表示のみで、シグナルの判定には使っていません。</p>")
+    return (
+        "<table class='filterable'><thead><tr><th>資産</th><th>資金調達率(8h)</th><th>状態</th>"
+        "<th>建玉24h変化</th></tr></thead>"
+        "<tbody>" + "".join(items) + "</tbody></table>" + note
+    )
+
+
 def render_liquidation_notes(rows) -> str:
     if not rows:
         return ("<p class='muted'>有効期限内の清算メモはありません"
@@ -459,9 +531,11 @@ def build_html() -> str:
     paper_performance = db_utils.get_paper_performance_by_source(hours=24 * 30)
     liquidation_notes = db_utils.get_active_liquidation_notes()
     liquidation_evals = db_utils.get_evaluated_liquidation_notes()
+    funding = db_utils.get_latest_funding_snapshots()
+    fear_greed = db_utils.get_recent_fear_greed()
 
     now_str = (datetime.now(timezone.utc).replace(tzinfo=None) + JST).strftime("%m-%d %H:%M")
-    asset_options = collect_assets(recent_signals, open_positions, hit_rate, liquidation_notes, liquidation_evals)
+    asset_options = collect_assets(recent_signals, open_positions, hit_rate, liquidation_notes, liquidation_evals, funding)
 
     return f"""<!DOCTYPE html>
 <html lang="ja">
@@ -533,6 +607,13 @@ def build_html() -> str:
   <div class="updated">最終更新: {now_str} ・ <a href="about.html" style="color:#4f8cff">このアプリについて</a> ・ <a href="weekly.html" style="color:#4f8cff">週次レポート</a></div>
 
   {render_asset_filter(asset_options)}
+
+  <section>
+    <h2>市場の過熱感(恐怖・強欲指数 / 資金調達率)</h2>
+    {render_fear_greed(fear_greed)}
+    <div style="height:10px"></div>
+    {render_funding(funding)}
+  </section>
 
   <section>
     <h2>清算メモ(手動記録・有効期限内)</h2>
