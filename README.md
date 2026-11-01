@@ -162,6 +162,7 @@ FRED（セントルイス連邦準備銀行が運営する経済データベー�
 | `correlation_report.py` + `correlation_report.yml` | 追跡資産間の相関を週次で通知 |
 | `journal_add.py` / `journal_close.py` / `journal_report.py` | 手動トレード記録・成績集計(ローカルで実行) |
 | `liquidation_note_add.py` + `liquidation_note.yml` | 清算マップ(CoinGlass)を見て判断した「清算の壁」をスマホから記録し、ダッシュボードに表示 |
+| `liquidation_tracker.py`(`target_tracker.yml`から実行) | 記録した清算の壁に価格が届いたか・届いた後に反転/突破したかを事後検証し、ダッシュボードに表示 |
 
 `crypto_signal_notifier.py` と `x_signal_notifier.py` も、シグナルをDBに記録し、
 クールダウン(同一資産・同一方向の再通知を一定時間抑制)する形に更新されています。
@@ -212,6 +213,7 @@ CoinGlassの清算マップを見て気づいた「清算が集中している�
 1. GitHubアプリ(またはブラウザ)でリポジトリを開き、Actions →「Liquidation Note」→「Run workflow」
 2. 銘柄・価格・種類(ロング清算の壁/ショート清算の壁)・メモ・表示時間(既定48時間)を入力して実行
 3. 1〜2分でダッシュボード上部の「清算メモ」に表示されます(期限が過ぎると非表示。記録は残ります)
+4. 期限が過ぎたメモは自動で検証され、「清算メモの検証結果」に「壁に到達したか」「到達後24時間で反転/突破/もみ合いのどれだったか」が出ます
 
 清算メモは人が判断した参考情報なので、confluence等の自動判定には使っていません。
 PCから `liquidation_note_add.py` を直接実行することもできますが、定期実行のActionsと

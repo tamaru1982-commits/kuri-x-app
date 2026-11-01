@@ -119,6 +119,17 @@ def init_db():
             valid_until TEXT NOT NULL       -- これを過ぎたらダッシュボードに出さない(削除はしない)
         )
     """)
+    # liquidation_tracker.py用: 記録した壁に価格が届いたか・届いた後どう動いたかの事後検証
+    existing_note_columns = {row["name"] for row in conn.execute("PRAGMA table_info(liquidation_notes)").fetchall()}
+    note_columns = {
+        "eval_result": "TEXT",      # 'reached' | 'not_reached' | 'wrong_side'(記録時に既に壁の反対側) | NULL(未検証)
+        "reached_hours": "REAL",    # 記録から壁に届くまでの時間
+        "after_touch": "TEXT",      # 'reversal'(押し戻された) | 'breakthrough'(突き抜けた) | 'range'(どちらでもない)
+        "evaluated_at": "TEXT",
+    }
+    for col, col_type in note_columns.items():
+        if col not in existing_note_columns:
+            conn.execute(f"ALTER TABLE liquidation_notes ADD COLUMN {col} {col_type}")
 
     conn.commit()
     conn.close()
@@ -508,6 +519,37 @@ def get_active_liquidation_notes() -> list[sqlite3.Row]:
     rows = conn.execute(
         "SELECT * FROM liquidation_notes WHERE valid_until > ? ORDER BY timestamp DESC",
         (utc_now_iso(),),
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+def get_unevaluated_liquidation_notes() -> list[sqlite3.Row]:
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM liquidation_notes WHERE eval_result IS NULL ORDER BY timestamp"
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+def record_liquidation_eval(note_id: int, eval_result: str, reached_hours: float | None,
+                            after_touch: str | None):
+    conn = get_conn()
+    conn.execute(
+        "UPDATE liquidation_notes SET eval_result = ?, reached_hours = ?, after_touch = ?, evaluated_at = ? "
+        "WHERE id = ?",
+        (eval_result, reached_hours, after_touch, utc_now_iso(), note_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_evaluated_liquidation_notes() -> list[sqlite3.Row]:
+    """検証済みのメモを新しい順に返す。"""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM liquidation_notes WHERE eval_result IS NOT NULL ORDER BY timestamp DESC"
     ).fetchall()
     conn.close()
     return rows

@@ -312,6 +312,69 @@ def render_liquidation_notes(rows) -> str:
     )
 
 
+LIQ_RESULT_LABELS = {
+    "reversal": "↩️ 反転",
+    "breakthrough": "⏩ 突破",
+    "range": "↔️ もみ合い",
+}
+
+
+def render_liquidation_eval(rows) -> str:
+    if not rows:
+        return ("<p class='muted'>まだ検証済みの清算メモはありません"
+                "(表示期限が過ぎたメモから順に自動で検証されます)。</p>")
+
+    judged = [r for r in rows if r["eval_result"] in ("reached", "not_reached")]
+    reached = [r for r in judged if r["eval_result"] == "reached"]
+    counts = {key: sum(1 for r in reached if r["after_touch"] == key) for key in LIQ_RESULT_LABELS}
+    wrong_side = len(rows) - len(judged)
+
+    def pct(n: int, total: int) -> str:
+        return f"{round(n / total * 100)}%" if total else "-"
+
+    stats = (
+        "<div class='stats'>"
+        f"<div class='stat'><span class='label'>壁に到達</span><span class='value'>{pct(len(reached), len(judged))}</span>"
+        f"<span class='label'>{len(reached)}/{len(judged)}件</span></div>"
+        + "".join(
+            f"<div class='stat'><span class='label'>到達後 {label}</span><span class='value'>{pct(counts[key], len(reached))}</span>"
+            f"<span class='label'>{counts[key]}件</span></div>"
+            for key, label in LIQ_RESULT_LABELS.items()
+        )
+        + "</div>"
+    )
+
+    items = []
+    for r in rows[:10]:
+        side_label = "🔻 ロング" if r["side"] == "long" else "🔺 ショート"
+        if r["eval_result"] == "reached":
+            result = f"到達({r['reached_hours']:g}h後)"
+            after = LIQ_RESULT_LABELS.get(r["after_touch"], "-")
+        elif r["eval_result"] == "not_reached":
+            result, after = "未到達", "-"
+        else:
+            result, after = "対象外", "-"
+        items.append(
+            f"<tr data-asset='{html.escape(r['asset'])}'>"
+            f"<td>{to_short_time(r['timestamp'])}</td><td>{asset_span(r['asset'])}</td>"
+            f"<td>{side_label}</td><td>{compact_price(r['price'])}</td>"
+            f"<td>{result}</td><td>{after}</td></tr>"
+        )
+
+    note = (f"<p class='muted' style='font-size:0.75rem;'>到達後24時間以内に、壁から1%以上戻れば「反転」、"
+            f"1%以上抜ければ「突破」。価格は約1時間ごとの値なので、短いヒゲは拾えません。")
+    if wrong_side:
+        note += f" 記録時点で既に壁の反対側にあった{wrong_side}件(上下の取り違えなど)は集計から除いています。"
+    note += f" 件数が{MIN_RELIABLE_SAMPLES}件に満たないうちは参考値です。</p>"
+
+    return (
+        stats
+        + "<table class='filterable' style='margin-top:10px;'><thead><tr><th>記録</th><th>資産</th><th>壁</th>"
+        "<th>価格</th><th>結果</th><th>到達後</th></tr></thead>"
+        "<tbody>" + "".join(items) + "</tbody></table>" + note
+    )
+
+
 def render_journal_summary(summary) -> str:
     if summary.get("total_trades", 0) == 0:
         return "<p class='muted'>まだ決済済みのトレード記録がありません。</p>"
@@ -394,9 +457,10 @@ def build_html() -> str:
     journal_summary = db_utils.get_journal_summary(is_paper=False)
     paper_performance = db_utils.get_paper_performance_by_source(hours=24 * 30)
     liquidation_notes = db_utils.get_active_liquidation_notes()
+    liquidation_evals = db_utils.get_evaluated_liquidation_notes()
 
     now_str = (datetime.now(timezone.utc).replace(tzinfo=None) + JST).strftime("%m-%d %H:%M")
-    asset_options = collect_assets(recent_signals, open_positions, hit_rate, liquidation_notes)
+    asset_options = collect_assets(recent_signals, open_positions, hit_rate, liquidation_notes, liquidation_evals)
 
     return f"""<!DOCTYPE html>
 <html lang="ja">
@@ -472,6 +536,11 @@ def build_html() -> str:
   <section>
     <h2>清算メモ(手動記録・有効期限内)</h2>
     {render_liquidation_notes(liquidation_notes)}
+  </section>
+
+  <section>
+    <h2>清算メモの検証結果(壁に届いたか・その後どう動いたか)</h2>
+    {render_liquidation_eval(liquidation_evals)}
   </section>
 
   <section>

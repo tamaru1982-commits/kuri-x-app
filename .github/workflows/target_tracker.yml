@@ -43,6 +43,10 @@ jobs:
         #   TARGET_WINDOW_HOURS: ${{ secrets.TARGET_WINDOW_HOURS }}
         run: python target_tracker.py
 
+      - name: 清算メモの事後検証
+        # 価格の時系列取得を目標到達判定と共用するため、同じワークフローで実行する
+        run: python liquidation_tracker.py
+
       - name: DBをコミット
         run: |
           git config user.name "github-actions[bot]"
