@@ -28,6 +28,7 @@ JST = timedelta(hours=9)
 SOURCE_ABBREV = {
     "crypto_technical": "tech",
     "crypto_dip": "dip",
+    "crypto_breakout": "brk",
     "x_post": "x",
     "whale_flow": "whale",
     "macro_pattern": "macro",

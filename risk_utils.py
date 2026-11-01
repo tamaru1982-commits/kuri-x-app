@@ -65,6 +65,21 @@ def stop_loss_pct_for_volatility(daily_volatility_pct: float | None) -> float:
     return max(MIN_STOP_LOSS_PCT, min(MAX_STOP_LOSS_PCT, raw))
 
 
+# ブレイクシグナル(crypto_breakout)用のトレーリングストップ幅 = 日次変動率の何倍か。
+# 2019〜2026年の日足バックテストで、2〜4倍のどれでも成績の傾向は同じだったが、
+# 最大下落幅が最も小さかった2倍を採用した(前半-26%/後半-28%、ただ持つ場合は-80%/-64%)。
+TRAIL_VOLATILITY_MULTIPLIER = float(os.environ.get("TRAIL_VOLATILITY_MULTIPLIER", "2.0"))
+
+
+def trail_pct_for(asset: str, volatility: dict | None = None) -> float:
+    """トレーリングストップの幅(%)。買った後の最高値(終値)からこれだけ下がったら手仕舞う。"""
+    volatility = load_volatility() if volatility is None else volatility
+    vol = volatility.get(asset)
+    if vol is None or vol <= 0:
+        return DEFAULT_STOP_LOSS_PCT * TRAIL_VOLATILITY_MULTIPLIER / STOP_VOLATILITY_MULTIPLIER
+    return vol * TRAIL_VOLATILITY_MULTIPLIER
+
+
 def target_pct_for_stop(stop_loss_pct: float) -> float:
     """損切り幅に対応する利確目標(%)。比率を固定して損益分岐の勝率を一定に保つ。"""
     return stop_loss_pct * TARGET_TO_STOP_RATIO

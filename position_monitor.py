@@ -22,6 +22,10 @@ GitHub Actionsの定期実行は実際には4時間前後おきにしか動か�
 見ていると、その間に利確目標に届いて戻った動きを取りこぼしたり、損切りが
 実際より何時間も遅れて大きな損失として記録されたりするため。
 
+トレーリングストップ(trail_pct)が設定されたペーパートレード(ブレイクシグナル)は、
+利確目標・保有期限・テクニカル売りサインを使わず、買った後の最高値(日足の終値)から
+trail_pctだけ下がった最初の終値で決済する(バックテストと同じ判定)。
+
 crypto_signal_notifier.py実行後を追いかける形で、30分おきの実行を想定。
 
 前提:
@@ -46,6 +50,11 @@ import requests
 import db_utils
 import price_utils
 from target_tracker import fetch_price_series
+from crypto_signal_notifier import completed_daily_closes, fetch_price_history
+
+# トレーリングストップの判定に使う日足の日数。保有がこれより長引くと、
+# 最高値を取りこぼす可能性がある(CoinGeckoは91日以上を指定すると日足になる)
+TRAIL_HISTORY_DAYS = 120
 
 TARGET_PROFIT_PCT = float(os.environ.get("POSITION_TARGET_PROFIT_PCT", "5.0"))
 ALERT_COOLDOWN_HOURS = float(os.environ.get("POSITION_ALERT_COOLDOWN_HOURS", "12"))
@@ -147,6 +156,8 @@ def build_paper_close_message(row, market_price: float, fee_adjusted_pnl_pct: fl
         lines.append("⚠️ テクニカル売りサイン発生で決済")
     if "time_exit" in alert_types:
         lines.append(f"⏱️ 保有期限({MAX_HOLD_HOURS:.0f}時間)到達で決済")
+    if "trail_stop" in alert_types:
+        lines.append(f"📉 トレーリングストップ(最高値から-{row['trail_pct']:.1f}%)で決済")
 
     lines.append("")
     lines.append(
@@ -212,6 +223,17 @@ def find_paper_exit(row, series: pd.Series, now: pd.Timestamp, current_price: fl
     return min(events, key=lambda e: e[0]) if events else None
 
 
+def find_trailing_exit(row, daily_closes: pd.Series) -> tuple[pd.Timestamp, float, str] | None:
+    """買った後の確定終値をたどり、最高値からtrail_pct下がった最初の終値で決済する。"""
+    entry_time = pd.Timestamp(datetime.fromisoformat(row["timestamp"])).tz_localize("UTC")
+    peak = row["entry_price"]
+    for ts, close in daily_closes[daily_closes.index > entry_time].items():
+        peak = max(peak, close)
+        if close <= peak * (1 - row["trail_pct"] / 100):
+            return ts, float(close), "trail_stop"
+    return None
+
+
 def settle_paper_positions(positions: list, prices: dict):
     now = pd.Timestamp(datetime.now(timezone.utc))
     by_asset: dict[str, list] = {}
@@ -224,15 +246,21 @@ def settle_paper_positions(positions: list, prices: dict):
             print(f"[スキップ] {asset}: 価格の対応表に無い銘柄です")
             continue
         try:
-            series = fetch_price_series(coin_id)
+            if any(row["trail_pct"] is None for row in rows):
+                series = fetch_price_series(coin_id)
+            if any(row["trail_pct"] is not None for row in rows):
+                daily_closes = completed_daily_closes(fetch_price_history(coin_id, "usd", TRAIL_HISTORY_DAYS))
         except Exception as e:
             # 現在価格だけで決済すると経路判定と基準が混ざるため、この回は見送って次回に回す
             print(f"[エラー] {asset} の値動き取得に失敗したため、ペーパー決済判定を次回に回します: {e}")
             continue
 
         for row in rows:
-            short_signals = get_tech_short_signals_since(asset, row["timestamp"])
-            exit_event = find_paper_exit(row, series, now, prices.get(asset), short_signals)
+            if row["trail_pct"] is not None:
+                exit_event = find_trailing_exit(row, daily_closes)
+            else:
+                short_signals = get_tech_short_signals_since(asset, row["timestamp"])
+                exit_event = find_paper_exit(row, series, now, prices.get(asset), short_signals)
             if exit_event is None:
                 current = prices.get(asset)
                 pnl_note = f"含み損益{(current - row['entry_price']) / row['entry_price'] * 100:+.2f}%" if current else "価格不明"

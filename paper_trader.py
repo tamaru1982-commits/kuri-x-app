@@ -52,6 +52,9 @@ STALE_SIGNAL_MAX_MINUTES = float(os.environ.get("PAPER_STALE_MAX_MINUTES", "60")
 
 STATE_FILE = Path("paper_trader_state.json")
 
+# トレーリングストップで手仕舞うソース(利確目標・保有期限は使わない)
+TRAILING_SOURCES = {"crypto_breakout"}
+
 
 def load_state() -> dict:
     if STATE_FILE.exists():
@@ -139,6 +142,11 @@ def main():
         # 損切り幅は銘柄の値動きの荒さに合わせる。一律だと、値動きの荒い銘柄では
         # シグナルの当たり外れに関係なくノイズで損切りされてしまう。
         stop_pct, target_pct = risk_utils.stop_and_target_for(asset, volatility)
+        trail_pct = None
+        if sig["source"] in TRAILING_SOURCES:
+            # 利確目標を置かず、最高値からの下落幅だけで手仕舞う(バックテストで検証した売り方)
+            trail_pct = risk_utils.trail_pct_for(asset, volatility)
+            stop_pct, target_pct = trail_pct, None
 
         size = NOTIONAL_USD / price
         stop_loss = price * (1 - stop_pct / 100)
@@ -146,11 +154,13 @@ def main():
         db_utils.add_journal_entry(
             asset=asset, direction="LONG", entry_price=price, size=size, stop_loss=stop_loss,
             note=f"paper:{sig['source']}", is_paper=True, source=sig["source"],
-            target_pct=target_pct,
+            target_pct=target_pct, trail_pct=trail_pct,
         )
         opened += 1
+        exit_rule = (f"最高値から-{trail_pct:.1f}%で手仕舞い" if trail_pct is not None
+                     else f"損切り-{stop_pct:.1f}% 利確+{target_pct:.1f}%")
         print(f"[OK] ペーパー建玉: {sig['source']} {asset} @ ${price:,.4f}"
-              f"(想定${NOTIONAL_USD:.0f}分 / 損切り-{stop_pct:.1f}% 利確+{target_pct:.1f}% 日次変動{volatility.get(asset, 0):.1f}%)")
+              f"(想定${NOTIONAL_USD:.0f}分 / {exit_rule} 日次変動{volatility.get(asset, 0):.1f}%)")
 
     state["last_signal_id"] = max_id
     save_state(state)

@@ -93,6 +93,12 @@ COINGECKO_BASE = "https://api.coingecko.com/api/v3"
 
 SOURCE_NAME = "crypto_technical"
 
+# ブレイクシグナル: 終値が直近20日間の最高終値を上抜けた日に買い候補として知らせる。
+# 2019〜2026年の日足バックテスト(8銘柄)で、今のSMAクロス・押し目より安定して
+# 成績が良く、下落相場での負けも小さかった(手仕舞いはトレーリングストップ)。
+SOURCE_BREAKOUT = "crypto_breakout"
+BREAKOUT_LOOKBACK_DAYS = int(os.environ.get("BREAKOUT_LOOKBACK_DAYS", "20"))
+
 
 # ============ 状態の読み書き(連続確認カウントの保持) ============
 
@@ -193,6 +199,30 @@ def compute_rsi(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
 
 
 # ============ シグナル判定 ============
+
+def completed_daily_closes(df: pd.DataFrame) -> pd.Series:
+    """確定した日足の終値だけを返す。CoinGeckoの日足は各日0時(UTC)の価格に加えて
+    末尾に「今この瞬間の価格」が付くため、0時ちょうどでない末尾の点は除く。"""
+    prices = df["price"]
+    if len(prices) and (prices.index[-1].hour, prices.index[-1].minute) != (0, 0):
+        prices = prices.iloc[:-1]
+    return prices
+
+
+def detect_fresh_breakout(df: pd.DataFrame, lookback: int = BREAKOUT_LOOKBACK_DAYS) -> tuple[bool, str | None, float | None]:
+    """最新の確定終値が、その前lookback日間の最高終値を上抜けたか。
+    前日の時点ですでに上抜けていた場合は「続いているだけ」なので出さない
+    (上昇が続く間、毎日同じシグナルが鳴り続けるのを防ぐ)。
+    戻り値: (新たに上抜けたか, その足の時刻, 上抜けた水準)"""
+    closes = completed_daily_closes(df)
+    if len(closes) < lookback + 2:
+        return False, None, None
+    level_today = closes.iloc[-lookback - 1:-1].max()
+    level_yesterday = closes.iloc[-lookback - 2:-2].max()
+    broke_today = closes.iloc[-1] > level_today
+    broke_yesterday = closes.iloc[-2] > level_yesterday
+    return bool(broke_today and not broke_yesterday), str(closes.index[-1]), float(level_today)
+
 
 def detect_recent_cross(df: pd.DataFrame, lookback: int) -> tuple[str | None, str | None]:
     """直近lookback本ぶんの区間で最後に起きたSMAクロスを (方向, 発生時刻) で返す。
@@ -306,6 +336,17 @@ def build_discord_message(results: list, volatility: dict | None = None) -> str:
     return "\n".join(lines)
 
 
+def build_breakout_message(signals: list) -> str:
+    lines = [f"**🚀 ブレイクシグナル({BREAKOUT_LOOKBACK_DAYS}日高値の上抜け)**", ""]
+    for b in signals:
+        lines.append(f"🟢 **{b['symbol']}**: 終値が{BREAKOUT_LOOKBACK_DAYS}日高値 ${b['level']:,.4g} を上抜け | 現在 ${b['price']:,.4g}")
+        lines.append(f"　📉 売りの目安: 買った後の**最高値(終値)から -{b['trail_pct']:.1f}%** 下がったら手仕舞い"
+                     f"(利確目標は置かず、上がる限り持つ)")
+    lines.append("")
+    lines.append("_※過去の日足検証で、上昇相場の利益は「ただ持つ」に劣るが、下落相場の損失を大きく抑えられた手法です。投資助言ではありません。_")
+    return "\n".join(lines)
+
+
 # 押し目「反転」シグナル用の演出色(警告レッド)。パトランプ的な視覚効果を
 # Discord Embedの縦バーで表現する。
 AWAKENING_COLOR = 0xFF3B30
@@ -374,11 +415,14 @@ def main():
     for symbol in [s for s, v in confirm_state.items() if not isinstance(v, dict) or not ({"pending", "handled_cross_at"} & set(v))]:
         confirm_state.pop(symbol, None)
     # さらに古い版がstate直下に書いていた銘柄キーも掃除する
-    for key in [k for k in state if k not in ("confirm", "volatility")]:
+    for key in [k for k in state if k not in ("confirm", "volatility", "breakout")]:
         state.pop(key, None)
 
     # 銘柄ごとの日次変動率。paper_trader.pyが損切り幅を決めるのに使う
     volatility_state = state.setdefault("volatility", {})
+    # 銘柄ごとに処理済みのブレイク(足の時刻)。実行は1日に何度もあるため、同じ足で二重に出さない
+    breakout_state = state.setdefault("breakout", {})
+    breakout_signals = []
     results = []
     dip_signals = []
     any_to_notify = False
@@ -470,6 +514,16 @@ def main():
                         dip_signals.append({"symbol": symbol, "price": price_val, "rsi": rsi_val,
                                             "prev_rsi": prev_rsi, "volatility": volatility_state.get(symbol)})
 
+            is_breakout, bar_at, level = detect_fresh_breakout(df)
+            if is_breakout and breakout_state.get(symbol) != bar_at:
+                breakout_state[symbol] = bar_at
+                trail_pct = risk_utils.trail_pct_for(symbol, volatility_state)
+                db_utils.log_signal(SOURCE_BREAKOUT, symbol, "LONG", result["price"],
+                                    message=f"{BREAKOUT_LOOKBACK_DAYS}日高値${level:,.4g}を終値で上抜け")
+                breakout_signals.append({"symbol": symbol, "price": result["price"], "level": level,
+                                         "trail_pct": trail_pct})
+                print(f"{symbol}: ブレイク({BREAKOUT_LOOKBACK_DAYS}日高値 ${level:,.4g} を上抜け)")
+
             results.append({"symbol": symbol, "result": result})
             print(f"{symbol}: {result['signal']}")
         except Exception as e:
@@ -490,6 +544,11 @@ def main():
         send_awakening_notification(dip_signals)
     else:
         print("新規の押し目シグナルはありません。")
+
+    if breakout_signals:
+        send_discord_notification(build_breakout_message(breakout_signals))
+    else:
+        print("新規のブレイクシグナルはありません。")
 
 
 if __name__ == "__main__":

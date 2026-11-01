@@ -103,6 +103,25 @@
     <p>ダッシュボードの「ソース」欄に表示される略称と、それぞれの判定根拠です。</p>
 
     <div class="source-card">
+      <div><span class="name">brk</span><span class="tag">crypto_breakout</span></div>
+      <p>
+        <strong>終値が直近20日間の最高終値を上抜けた日</strong>に、買い候補として通知します(日足)。
+        上抜けが続いている間は毎日出さず、新たに上抜けた日だけ出します。
+      </p>
+      <p>
+        売りは利確目標を置かず、<strong>買った後の最高値(終値)から「日次変動率×2」下がったら手仕舞い</strong>
+        (トレーリングストップ)。上がり続ける限り持ち続けます。ペーパートレードもこのルールで決済します。
+      </p>
+      <div class="note">
+        <strong>2026年11月に追加しました。</strong>2019〜2026年の日足で8銘柄をバックテストしたところ、
+        tech(SMAクロス)とdip(RSI反転)は「適当な日に買うのと変わらない」結果だった一方、
+        このルールは前半(2019〜22年)・後半(2023年〜)のどちらでもプラスでした。
+        上昇相場の利益は「ただ持つ」に劣りますが、2022年の下落相場ではただ持つ場合の-72%に対して
+        -19%に留まりました。tech・dipとはしばらく並行して記録し、成績を比べます。
+      </div>
+    </div>
+
+    <div class="source-card">
       <div><span class="name">tech</span><span class="tag">crypto_technical</span></div>
       <p>
         CoinGeckoの価格(<strong>日足</strong>・過去120日分)から、<strong>SMA9とSMA21のクロス + RSI(14)</strong>で判定する
