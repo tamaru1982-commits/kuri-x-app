@@ -1,29 +1,29 @@
 {
-  "generated_at": "2026-10-08T20:13:48.500963",
+  "generated_at": "2026-11-08T19:11:52.469393",
   "lookback_releases": 24,
   "patterns": {
     "上振れ(直近3ヶ月平均超)": {
       "BTC": {
-        "avg_move_pct": 0.13,
-        "up_ratio_pct": 60.0,
-        "sample_count": 10
+        "avg_move_pct": 0.09,
+        "up_ratio_pct": 54.5,
+        "sample_count": 11
       },
       "ETH": {
         "avg_move_pct": 0.04,
-        "up_ratio_pct": 40.0,
-        "sample_count": 10
+        "up_ratio_pct": 45.5,
+        "sample_count": 11
       }
     },
     "下振れ(直近3ヶ月平均以下)": {
       "BTC": {
-        "avg_move_pct": -0.65,
-        "up_ratio_pct": 42.9,
-        "sample_count": 14
+        "avg_move_pct": -0.87,
+        "up_ratio_pct": 38.5,
+        "sample_count": 13
       },
       "ETH": {
-        "avg_move_pct": -1.53,
-        "up_ratio_pct": 42.9,
-        "sample_count": 14
+        "avg_move_pct": -1.86,
+        "up_ratio_pct": 38.5,
+        "sample_count": 13
       }
     }
   }
